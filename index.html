@@ -1,0 +1,378 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>人生財務決策模擬器 | Life Budget Simulator</title>
+    <meta name="description" content="透過蒙地卡羅模擬，預測重大財務決策的成功率與風險。幫助你看見未來、做出更好的人生選擇。">
+    <link rel="icon" href="favicon.svg" type="image/svg+xml">
+    <link rel="stylesheet" href="css/style.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+</head>
+
+<body>
+    <div class="app-container">
+
+        <!-- ========== HERO ========== -->
+        <section id="hero-section" class="hero">
+            <div class="hero-icon">💰</div>
+            <h1>人生財務決策模擬器</h1>
+            <p class="subtitle">
+                透過 <span>5,000 次蒙地卡羅模擬</span>，<br>
+                預測你的重大財務決策成功率。<br>
+                讓你在做決定之前，先看見未來。
+            </p>
+            <button id="btn-start" class="btn btn-primary">
+                開始模擬 →
+            </button>
+        </section>
+
+        <!-- ========== WIZARD ========== -->
+        <section id="wizard-section" class="wizard">
+            <div class="progress-bar-container">
+                <div class="progress-steps">
+                    <div class="progress-line" id="progress-line" style="width: 0%"></div>
+                    <div class="step-indicator active">1</div>
+                    <div class="step-indicator">2</div>
+                    <div class="step-indicator">3</div>
+                    <div class="step-indicator">4</div>
+                    <div class="step-indicator">5</div>
+                </div>
+                <div class="step-labels">
+                    <span class="step-label active">基本資料</span>
+                    <span class="step-label">固定支出</span>
+                    <span class="step-label">變動支出</span>
+                    <span class="step-label">資產負債</span>
+                    <span class="step-label">決策模擬</span>
+                </div>
+            </div>
+
+            <div class="glass-card">
+                <!-- Step 1: Basic Info -->
+                <div class="step-content active" id="step-0">
+                    <div
+                        style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
+                        <h2 class="step-title" style="margin-bottom: 0;">📋 基本資料</h2>
+                        <div class="save-load-actions">
+                            <button id="btn-export-config" class="btn-secondary"
+                                style="padding: 0.4rem 0.8rem; font-size: 0.85rem;">💾 匯出設定</button>
+                            <label for="import-config-file" class="btn-secondary"
+                                style="padding: 0.4rem 0.8rem; font-size: 0.85rem; cursor: pointer;">📂 匯入設定</label>
+                            <input type="file" id="import-config-file" accept=".json" style="display: none;">
+                        </div>
+                    </div>
+                    <p class="step-desc">請輸入你的基本財務資訊，這是模擬的基礎數據。</p>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label class="form-label" for="income">每月薪資 (NT$)</label>
+                            <input type="number" class="form-input" id="income" value="60000" min="0">
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label" for="bonus-months">年終獎金 (月數)</label>
+                            <input type="number" class="form-input" id="bonus-months" value="2" min="0" max="12"
+                                step="0.5">
+                            <p class="form-hint">例如 2 = 年底多領 2 個月薪水</p>
+                        </div>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label class="form-label" for="age">目前年齡</label>
+                            <input type="number" class="form-input" id="age" value="29" min="18" max="80">
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label" for="retire-age">預計退休年齡</label>
+                            <input type="number" class="form-input" id="retire-age" value="65" min="40" max="85">
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label" for="raise-rate">預估年薪成長率 (%)</label>
+                        <input type="number" class="form-input" id="raise-rate" value="3" min="0" max="20" step="0.5">
+                        <p class="form-hint">一般上班族約 2-5%</p>
+                    </div>
+                </div>
+
+                <!-- Step 2: Fixed Expenses -->
+                <div class="step-content" id="step-1">
+                    <h2 class="step-title">🏠 固定支出</h2>
+                    <p class="step-desc">每月固定需要支付的費用（不含貸款，貸款在資產負債頁設定）。</p>
+                    <div class="expense-list" id="fixed-expense-list"></div>
+                    <button class="btn-add" id="btn-add-fixed">+ 新增固定支出</button>
+                </div>
+
+                <!-- Step 3: Variable Expenses -->
+                <div class="step-content" id="step-2">
+                    <h2 class="step-title">🛒 變動支出</h2>
+                    <p class="step-desc">每月金額不固定的消費。輸入平均值與波動範圍，模擬會以此產生隨機分布。</p>
+                    <div class="expense-list" id="variable-expense-list"></div>
+                    <button class="btn-add" id="btn-add-variable">+ 新增變動支出</button>
+                </div>
+
+                <!-- Step 4: Assets, Stocks & Debts -->
+                <div class="step-content" id="step-3">
+                    <h2 class="step-title">💎 資產與負債</h2>
+                    <p class="step-desc">你目前的資產、股票持倉與負債狀況。</p>
+
+                    <div class="form-group">
+                        <label class="form-label" for="savings">💵 現金存款 (NT$)</label>
+                        <input type="number" class="form-input" id="savings" value="300000" min="0">
+                    </div>
+
+                    <div class="section-divider">
+                        <h3 class="section-subtitle">📈 股票持倉</h3>
+                        <p class="form-hint">輸入股票代號和股數，系統將自動抓取即時報價。台股加 .TW（例如 2330.TW）</p>
+                    </div>
+                    <div class="expense-list" id="stock-list"></div>
+                    <button class="btn-add" id="btn-add-stock">+ 新增股票</button>
+
+                    <div class="section-divider mt-2">
+                        <h3 class="section-subtitle">💳 負債/貸款</h3>
+                        <p class="form-hint">每筆貸款的剩餘金額、每月還款、剩餘期數</p>
+                    </div>
+                    <div class="expense-list" id="debt-list"></div>
+                    <button class="btn-add" id="btn-add-debt">+ 新增負債</button>
+                </div>
+
+                <!-- Step 5: Decision -->
+                <div class="step-content" id="step-4">
+                    <h2 class="step-title">🎯 決策模擬</h2>
+                    <p class="step-desc">選擇你正在考慮的重大財務決策，我們將模擬它對你未來的影響。</p>
+
+                    <div class="decision-grid">
+                        <div class="decision-card" data-type="insurance">
+                            <div class="icon">🛡️</div>
+                            <div class="label">買保險</div>
+                        </div>
+                        <div class="decision-card" data-type="house">
+                            <div class="icon">🏡</div>
+                            <div class="label">買房</div>
+                        </div>
+                        <div class="decision-card" data-type="car">
+                            <div class="icon">🚗</div>
+                            <div class="label">買車</div>
+                        </div>
+                        <div class="decision-card" data-type="business">
+                            <div class="icon">🚀</div>
+                            <div class="label">創業</div>
+                        </div>
+                        <div class="decision-card" data-type="custom">
+                            <div class="icon">✏️</div>
+                            <div class="label">自訂</div>
+                        </div>
+                    </div>
+
+                    <!-- General decision form -->
+                    <div id="decision-form" style="display: none;">
+                        <div class="form-group">
+                            <label class="form-label" for="decision-name">決策名稱</label>
+                            <input type="text" class="form-input" id="decision-name" placeholder="例：購買保單">
+                        </div>
+                        <div class="form-row-3">
+                            <div class="form-group">
+                                <label class="form-label" for="decision-monthly">每月支出 (NT$)</label>
+                                <input type="number" class="form-input" id="decision-monthly" value="10000" min="0">
+                            </div>
+                            <div class="form-group">
+                                <label class="form-label" for="decision-upfront">一次性支出 (NT$)</label>
+                                <input type="number" class="form-input" id="decision-upfront" value="0" min="0">
+                                <p class="form-hint">頭期款、加盟金等</p>
+                            </div>
+                            <div class="form-group">
+                                <label class="form-label" for="decision-years">綁約年數</label>
+                                <input type="number" class="form-input" id="decision-years" value="12" min="1" max="40">
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Insurance form -->
+                    <div id="insurance-form" style="display: none;">
+                        <div class="form-group">
+                            <label class="form-label" for="ins-name">保單名稱</label>
+                            <input type="text" class="form-input" id="ins-name" value="分紅保單">
+                        </div>
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label class="form-label" for="ins-yearly-premium">每年繳費金額</label>
+                                <input type="number" class="form-input" id="ins-yearly-premium" value="5000" min="0">
+                                <p class="form-hint">每年繳交的保費本金</p>
+                            </div>
+                            <div class="form-group">
+                                <label class="form-label" for="ins-premium-currency">幣別</label>
+                                <select class="form-input" id="ins-premium-currency">
+                                    <option value="USD">美元 (USD)</option>
+                                    <option value="NTD">台幣 (NTD)</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="form-row-3">
+                            <div class="form-group">
+                                <label class="form-label" for="ins-base-rate">第一年分紅利率 (%)</label>
+                                <input type="number" class="form-input" id="ins-base-rate" value="9.7" min="0" max="100"
+                                    step="0.1">
+                                <p class="form-hint">非複利，按年繳本金計算</p>
+                            </div>
+                            <div class="form-group">
+                                <label class="form-label" for="ins-rate-increment">每年利率增加 (%)</label>
+                                <input type="number" class="form-input" id="ins-rate-increment" value="2" min="0"
+                                    max="50" step="0.1">
+                            </div>
+                            <div class="form-group">
+                                <label class="form-label" for="ins-years">繳費年數</label>
+                                <input type="number" class="form-input" id="ins-years" value="12" min="1" max="40">
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label" for="ins-exchange-rate">匯率 (1 USD = ? NTD)</label>
+                            <input type="number" class="form-input" id="ins-exchange-rate" value="32" min="0"
+                                step="0.1">
+                            <p class="form-hint">保費幣別為美元時，需乘以匯率換算為台幣</p>
+                        </div>
+                        <div id="ins-preview" class="mt-2"></div>
+                    </div>
+                </div>
+
+                <!-- Navigation -->
+                <div class="step-nav">
+                    <button id="btn-prev" class="btn btn-secondary" style="visibility: hidden;">← 上一步</button>
+                    <button id="btn-next" class="btn btn-primary">下一步 →</button>
+                </div>
+            </div>
+        </section>
+
+        <!-- ========== LOADING ========== -->
+        <section id="simulation-loading" class="simulation-loading">
+            <div class="loading-spinner"></div>
+            <div class="loading-text">正在執行蒙地卡羅模擬...</div>
+            <div class="loading-sub">模擬 5,000 種未來可能情境中</div>
+        </section>
+
+        <!-- ========== RESULTS ========== -->
+        <section id="results-section" class="results-section">
+            <div class="results-header" style="display: flex; justify-content: space-between; align-items: flex-end;">
+                <div>
+                    <h2>📊 模擬結果</h2>
+                    <p>以下是基於 5,000 次蒙地卡羅模擬的分析報告</p>
+                </div>
+                <div>
+                    <button id="btn-export-csv" class="btn-primary"
+                        style="padding: 0.6rem 1.2rem; font-size: 0.9rem;">📥 匯出 CSV 明細</button>
+                </div>
+            </div>
+
+            <div class="success-display">
+                <div class="success-ring-container">
+                    <canvas id="chart-success"></canvas>
+                    <div class="success-rate-number">
+                        <div class="number" id="success-rate-num">0</div>
+                        <div class="unit">%</div>
+                        <div class="label-text">資產增長成功率</div>
+                    </div>
+                </div>
+                <div id="stress-badge" class="stress-badge low">財務壓力：低</div>
+            </div>
+
+            <div class="stats-grid">
+                <div class="stat-card" id="stat-shrink">
+                    <div class="stat-icon">📉</div>
+                    <div class="stat-value">0%</div>
+                    <div class="stat-label">資產縮水率</div>
+                </div>
+                <div class="stat-card" id="stat-median">
+                    <div class="stat-icon">💰</div>
+                    <div class="stat-value">NT$ 0</div>
+                    <div class="stat-label">中位數淨資產</div>
+                </div>
+                <div class="stat-card" id="stat-retire-delay">
+                    <div class="stat-icon">🕐</div>
+                    <div class="stat-value">0 年</div>
+                    <div class="stat-label">預估退休延後</div>
+                </div>
+                <div class="stat-card" id="stat-iterations">
+                    <div class="stat-icon">🔄</div>
+                    <div class="stat-value">5,000</div>
+                    <div class="stat-label">模擬次數</div>
+                </div>
+            </div>
+
+            <div class="chart-section">
+                <h3>📈 淨資產趨勢預測</h3>
+                <div class="chart-container tall">
+                    <canvas id="chart-cashflow"></canvas>
+                </div>
+            </div>
+
+            <div class="charts-row">
+                <div class="chart-section">
+                    <h3>📊 最終資產分布</h3>
+                    <div class="chart-container tall">
+                        <canvas id="chart-distribution"></canvas>
+                    </div>
+                </div>
+                <div class="chart-section">
+                    <h3>🍩 月支出組成</h3>
+                    <div class="chart-container tall">
+                        <canvas id="chart-expense"></canvas>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Year-by-Year Timeline -->
+            <div class="chart-section">
+                <h3>📅 年度資產時間軸</h3>
+                <p style="color: var(--text-dim); font-size: 0.85rem; margin-bottom: 16px;">
+                    點擊年份可展開查看該年每月收支細項（顯示樂觀/中位數/保守三種情境）
+                </p>
+                <div class="timeline-tabs" id="timeline-scenario-tabs">
+                    <button class="timeline-tab active" data-scenario="median">📊 中位數</button>
+                    <button class="timeline-tab" data-scenario="optimistic">🟢 樂觀</button>
+                    <button class="timeline-tab" data-scenario="pessimistic">🔴 保守</button>
+                </div>
+                <div id="year-timeline"></div>
+            </div>
+
+            <!-- Insurance Stats -->
+            <div id="insurance-stats-section" class="chart-section" style="display: none;">
+                <h3>🛡️ 保單分析</h3>
+                <div class="stats-grid">
+                    <div class="stat-card" id="stat-ins-total-premium">
+                        <div class="stat-icon">💸</div>
+                        <div class="stat-value">0</div>
+                        <div class="stat-label">累計繳費</div>
+                    </div>
+                    <div class="stat-card" id="stat-ins-total-dividend">
+                        <div class="stat-icon">🎁</div>
+                        <div class="stat-value">0</div>
+                        <div class="stat-label">累計分紅</div>
+                    </div>
+                    <div class="stat-card" id="stat-ins-net-cost">
+                        <div class="stat-icon">📋</div>
+                        <div class="stat-value">0</div>
+                        <div class="stat-label">淨成本</div>
+                    </div>
+                    <div class="stat-card" id="stat-ins-roi">
+                        <div class="stat-icon">📈</div>
+                        <div class="stat-value">0%</div>
+                        <div class="stat-label">分紅報酬率</div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="recommendation-box">
+                <h3>💡 AI 建議</h3>
+                <p class="recommendation-text" id="recommendation-text"></p>
+                <div class="recommendation-details" id="recommendation-details"></div>
+            </div>
+
+            <div class="restart-bar">
+                <button id="btn-restart" class="btn btn-secondary">🔄 重新模擬</button>
+            </div>
+        </section>
+
+    </div>
+
+    <script src="js/simulator.js"></script>
+    <script src="js/charts.js"></script>
+    <script src="js/app.js"></script>
+</body>
+
+</html>
