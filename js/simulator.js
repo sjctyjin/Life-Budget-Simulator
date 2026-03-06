@@ -20,6 +20,8 @@ class FinancialSimulator {
         this.inflationRate = config.inflationRate || 0.02;
         this.insuranceSurrenderYear = config.insuranceSurrenderYear || null; // dynamic surrender year
         this.perpetualDividend = config.perpetualDividend || false; // whether insurance dividend continues indefinitely
+        this.endAge = config.endAge || 85;
+        this.fireAgeOverride = config.fireAgeOverride || null;
 
         // Pre-calculate baseline values (if any)
         // this.precalculatedIncome = this.getYearlyIncome(); // This line was in the diff but seems to be a placeholder or incomplete. Keeping it commented out as it's not a valid method call here.
@@ -200,9 +202,10 @@ class FinancialSimulator {
             }
 
             // --- INCOME ---
-            const salaryIncome = currentAge < this.retireAge ? monthlyIncome : 0;
+            const effectiveRetireAge = this.fireAgeOverride !== null ? this.fireAgeOverride : this.retireAge;
+            const salaryIncome = currentAge < effectiveRetireAge ? monthlyIncome : 0;
             let bonusIncome = 0;
-            if (monthInYear === 12 && this.bonusMonths > 0 && currentAge < this.retireAge) {
+            if (monthInYear === 12 && this.bonusMonths > 0 && currentAge < effectiveRetireAge) {
                 bonusIncome = monthlyIncome * this.bonusMonths;
             }
             const totalIncome = salaryIncome + bonusIncome;
@@ -441,9 +444,9 @@ class FinancialSimulator {
      * After main run, re-run 3 detailed paths for P10/P50/P90 breakdown
      */
     runSimulation(iterations = 5000) {
-        // Extend simulation to retirement age (default age 65)
-        const yearsToRetire = Math.max(this.retireAge - this.age, 10);
-        const simulationYears = Math.min(yearsToRetire, 50); // cap at 50 years max
+        // Extend simulation to endAge (default 85)
+        const yearsToEnd = Math.max(this.endAge - this.age, 10);
+        const simulationYears = Math.min(yearsToEnd, 100); // cap at 100 years max
 
         const results = [];
         const allPaths = [];

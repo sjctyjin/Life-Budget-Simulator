@@ -574,6 +574,7 @@
         const income = parseFloat(document.getElementById('income').value) || 0;
         const age = parseInt(document.getElementById('age').value) || 25;
         const retireAge = parseInt(document.getElementById('retire-age').value) || 65;
+        const endAge = parseInt(document.getElementById('end-age').value) || 85;
         const raiseRate = parseFloat(document.getElementById('raise-rate').value) / 100 || 0.03;
         const bonusMonths = parseFloat(document.getElementById('bonus-months').value) || 0;
         const savings = parseFloat(document.getElementById('savings').value) || 0;
@@ -618,7 +619,7 @@
         const scenario = document.getElementById('market-scenario').value || 'normal';
 
         const config = {
-            income, age, retireAge, bonusMonths,
+            income, age, retireAge, endAge, bonusMonths,
             currentYear: new Date().getFullYear(),
             fixedExpenses: state.fixedExpenses.filter(e => e.amount > 0),
             variableExpenses: state.variableExpenses.filter(e => e.amount > 0),
@@ -628,13 +629,19 @@
             decision,
             annualRaiseRate: raiseRate,
             scenario: scenario,
-            insuranceSurrenderYear: window._surrenderYearOverride || null
+            insuranceSurrenderYear: window._surrenderYearOverride || null,
+            fireAgeOverride: window._fireAgeOverride || null
         };
 
         if (income <= 0) { alert('請輸入月收入'); showStep(0); return; }
 
-        // Clear dynamic override for next fresh run
-        window._surrenderYearOverride = null;
+        // Clear dynamic overrides for next fresh run from the "Start Simulation" button only
+        // Do NOT clear them if this is a re-run triggered by a slider.
+        if (!window._isSliderReRun) {
+            window._surrenderYearOverride = null;
+            window._fireAgeOverride = null;
+        }
+        window._isSliderReRun = false;
 
         document.getElementById('wizard-section').classList.remove('active');
         document.getElementById('simulation-loading').classList.add('active');
@@ -724,6 +731,50 @@
 
         const insSection = document.getElementById('insurance-stats-section');
         const surrenderControls = document.getElementById('surrender-controls');
+
+        // Setup FIRE Age Slider
+        const fireAgeSlider = document.getElementById('fire-age-slider');
+        const fireAgeDisplay = document.getElementById('fire-age-display');
+        const endAge = parseInt(document.getElementById('end-age').value) || 85;
+        const retireAge = parseInt(document.getElementById('retire-age').value) || 65;
+        const currentAge = parseInt(document.getElementById('age').value) || 25;
+
+        fireAgeSlider.min = currentAge;
+        fireAgeSlider.max = endAge;
+        document.getElementById('fire-slider-min').textContent = `${currentAge} 歲`;
+        document.getElementById('fire-slider-max').textContent = `${endAge} 歲`;
+
+        const currentFireAge = window._fireAgeOverride;
+        if (currentFireAge && currentFireAge !== retireAge) {
+            fireAgeSlider.value = currentFireAge;
+            fireAgeDisplay.textContent = `${currentFireAge} 歲起停止工作`;
+        } else {
+            fireAgeSlider.value = retireAge;
+            fireAgeDisplay.textContent = '依原定退休年齡';
+        }
+
+        if (!fireAgeSlider.dataset.bound) {
+            fireAgeSlider.dataset.bound = 'true';
+            fireAgeSlider.addEventListener('change', (e) => {
+                const fAge = parseInt(e.target.value);
+                if (fAge === retireAge) {
+                    window._fireAgeOverride = null;
+                } else {
+                    window._fireAgeOverride = fAge;
+                }
+                window._isSliderReRun = true;
+                startSimulation();
+            });
+
+            fireAgeSlider.addEventListener('input', (e) => {
+                const fAge = parseInt(e.target.value);
+                if (fAge === retireAge) {
+                    fireAgeDisplay.textContent = '依原定退休年齡';
+                } else {
+                    fireAgeDisplay.textContent = `${fAge} 歲起停止工作`;
+                }
+            });
+        }
 
         if (results.insuranceStats) {
             insSection.style.display = 'block';

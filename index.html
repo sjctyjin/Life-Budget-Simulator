@@ -81,8 +81,13 @@
                             <input type="number" class="form-input" id="age" value="29" min="18" max="80">
                         </div>
                         <div class="form-group">
-                            <label class="form-label" for="retire-age">預計退休年齡</label>
-                            <input type="number" class="form-input" id="retire-age" value="65" min="40" max="85">
+                            <label class="form-label" for="retire-age">預計退休年齡 (開始提領)</label>
+                            <input type="number" id="retire-age" class="form-control" value="65" min="20" max="100">
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label" for="end-age">預計壽命 (模擬終點) <span class="help-icon"
+                                    title="模擬會跑到這個年齡才結束，用來測試退休金能不能維持到終老。">?</span></label>
+                            <input type="number" id="end-age" class="form-control" value="85" min="50" max="120">
                         </div>
                     </div>
                     <div class="form-group">
@@ -359,8 +364,31 @@
                 </div>
                 <div class="stat-card" id="stat-iterations">
                     <div class="stat-icon">🔄</div>
-                    <div class="stat-value">5,000</div>
+                    <div class="stat-value">5000</div>
                     <div class="stat-label">模擬次數</div>
+                </div>
+            </div>
+
+            <!-- 🔥 FIRE Stress Test Controls -->
+            <div id="fire-test-controls" class="insurance-stats-section" style="margin-top: 1.5rem;">
+                <h3 style="margin-top: 0; color: #f97316; display: flex; align-items: center; gap: 8px;">
+                    🔥 FIRE 提早退休壓力測試
+                </h3>
+                <p style="color: var(--text-dim); font-size: 0.9rem; margin-bottom: 24px;">
+                    測試你的資產池能不能養你到終老！調整下方滑桿，模擬在特定年齡「薪資與年終瞬間歸零」，只靠被動收入與變賣資產能否度過餘生。</p>
+                <div
+                    style="background: rgba(15, 15, 35, 0.4); border: 1px solid var(--border-subtle); padding: 1.5rem; border-radius: 8px;">
+                    <div style="display: flex; justify-content: space-between; margin-bottom: 8px; font-weight: 500;">
+                        <span>停止工作年齡 (FIRE)</span>
+                        <span id="fire-age-display" style="color: #f97316; font-size: 1.1em;">依原定退休年齡</span>
+                    </div>
+                    <input type="range" id="fire-age-slider" class="form-control" style="width: 100%; cursor: pointer;"
+                        min="20" max="100" value="65" step="1">
+                    <div
+                        style="display: flex; justify-content: space-between; font-size: 0.8rem; color: var(--text-dim); margin-top: 8px;">
+                        <span id="fire-slider-min">現在年齡</span>
+                        <span id="fire-slider-max">壽命終點</span>
+                    </div>
                 </div>
             </div>
 
