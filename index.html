@@ -82,18 +82,19 @@
                         </div>
                         <div class="form-group">
                             <label class="form-label" for="retire-age">預計退休年齡 (開始提領)</label>
-                            <input type="number" id="retire-age" class="form-control" value="65" min="20" max="100">
+                            <input type="number" id="retire-age" class="form-input" value="65" min="20" max="100">
                         </div>
                         <div class="form-group">
                             <label class="form-label" for="end-age">預計壽命 (模擬終點) <span class="help-icon"
                                     title="模擬會跑到這個年齡才結束，用來測試退休金能不能維持到終老。">?</span></label>
-                            <input type="number" id="end-age" class="form-control" value="85" min="50" max="120">
+                            <input type="number" id="end-age" class="form-input" value="85" min="50" max="120">
                         </div>
-                    </div>
-                    <div class="form-group">
-                        <label class="form-label" for="raise-rate">預估年薪成長率 (%)</label>
-                        <input type="number" class="form-input" id="raise-rate" value="3" min="0" max="20" step="0.5">
-                        <p class="form-hint">一般上班族約 2-5%</p>
+                        <div class="form-group">
+                            <label class="form-label" for="raise-rate">預估年薪成長率 (%)</label>
+                            <input type="number" class="form-input" id="raise-rate" value="3" min="0" max="20"
+                                step="0.5">
+                            <p class="form-hint">一般上班族約 2-5%</p>
+                        </div>
                     </div>
 
                     <div class="section-divider mt-2">
@@ -114,6 +115,19 @@
                             </select>
                             <p class="form-hint">測試極端經濟事件下的生存能力</p>
                         </div>
+                    </div>
+
+                    <div class="form-group"
+                        style="margin-top: 15px; border: 1px solid var(--border-color); padding: 15px; border-radius: 8px;">
+                        <div style="display: flex; align-items: center;">
+                            <input type="checkbox" id="toggle-swr"
+                                style="width: 20px; height: 20px; margin-right: 10px;" checked>
+                            <label for="toggle-swr"
+                                style="font-size: 1.1rem; cursor: pointer; color: var(--text-bright); font-weight: bold;">🛡️
+                                啟用退休後安全提領模式 (SWR)</label>
+                        </div>
+                        <p class="form-hint" style="margin-top: 8px;">退休後自動將資產轉為保守配置 (預設年化報酬 4%，波動 6%)，避免將 100%
+                            資金暴露於股市高風險中，更貼近真實退休規劃。</p>
                     </div>
                 </div>
 
@@ -362,6 +376,20 @@
                     <div class="stat-value">0 年</div>
                     <div class="stat-label">預估退休延後</div>
                 </div>
+                <div class="stat-card" id="stat-lean-fire" title="基礎退休 (Lean FIRE)：被動收入與退場資產足以涵蓋「維持基本生存」所需的固定及變動支出。">
+                    <div class="stat-icon">🎯</div>
+                    <div class="stat-value">0%</div>
+                    <div class="stat-label">基礎退休達標率</div>
+                    <div class="stat-sub-label" id="stat-lean-fire-age"
+                        style="font-size: 0.8rem; color: var(--text-dim); margin-top: 4px;">- 歲</div>
+                </div>
+                <div class="stat-card" id="stat-fat-fire" title="寬裕退休 (Fat FIRE)：被動收入與退場資產遠大於基本生存支出，能享受高品質生活。">
+                    <div class="stat-icon">🌴</div>
+                    <div class="stat-value">0%</div>
+                    <div class="stat-label">寬裕退休達標率</div>
+                    <div class="stat-sub-label" id="stat-fat-fire-age"
+                        style="font-size: 0.8rem; color: var(--text-dim); margin-top: 4px;">- 歲</div>
+                </div>
                 <div class="stat-card" id="stat-iterations">
                     <div class="stat-icon">🔄</div>
                     <div class="stat-value">5000</div>
@@ -382,8 +410,8 @@
                         <span>停止工作年齡 (FIRE)</span>
                         <span id="fire-age-display" style="color: #f97316; font-size: 1.1em;">依原定退休年齡</span>
                     </div>
-                    <input type="range" id="fire-age-slider" class="form-control" style="width: 100%; cursor: pointer;"
-                        min="20" max="100" value="65" step="1">
+                    <input type="range" id="fire-age-slider" style="width: 100%; cursor: pointer;" min="20" max="100"
+                        value="65" step="1">
                     <div
                         style="display: flex; justify-content: space-between; font-size: 0.8rem; color: var(--text-dim); margin-top: 8px;">
                         <span id="fire-slider-min">現在年齡</span>
@@ -392,7 +420,19 @@
                 </div>
             </div>
 
-            <div class="chart-section">
+            <div
+                style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; margin-top: 2rem;">
+                <h2 class="section-subtitle" style="margin-bottom: 0;">📊 淨資產與趨勢分析</h2>
+                <div
+                    style="background: rgba(0,255,255,0.1); padding: 8px 15px; border-radius: 20px; border: 1px solid var(--accent-cyan);">
+                    <input type="checkbox" id="toggle-real-value" style="width: 18px; height: 18px; margin-right: 8px;">
+                    <label for="toggle-real-value"
+                        style="font-size: 0.95rem; cursor: pointer; color: var(--accent-cyan); font-weight: bold;">📉
+                        折算為今日購買力 (實質價值)</label>
+                </div>
+            </div>
+
+            <div class="chart-section" style="margin-top: 5px;">
                 <h3>📈 淨資產趨勢預測</h3>
                 <div class="chart-container tall">
                     <canvas id="chart-cashflow"></canvas>

@@ -1,0 +1,318 @@
+{
+  "income": "59000",
+  "bonusMonths": "2.5",
+  "age": "29",
+  "retireAge": "65",
+  "raiseRate": "2",
+  "savings": "1000000",
+  "state": {
+    "fixedExpenses": [
+      {
+        "name": "房租/房貸",
+        "amount": 12500,
+        "isInvestment": false,
+        "targetStock": ""
+      },
+      {
+        "name": "水電瓦斯",
+        "amount": 2000,
+        "isInvestment": false,
+        "targetStock": ""
+      },
+      {
+        "name": "電話費",
+        "amount": 1000,
+        "isInvestment": false,
+        "targetStock": ""
+      },
+      {
+        "name": "保險",
+        "amount": 4500,
+        "isInvestment": false,
+        "targetStock": ""
+      },
+      {
+        "name": "紅包錢",
+        "amount": 2500,
+        "isInvestment": false,
+        "targetStock": ""
+      }
+    ],
+    "variableExpenses": [
+      {
+        "name": "伙食",
+        "amount": 7000,
+        "fluctuation": 2000
+      },
+      {
+        "name": "交通",
+        "amount": 3000,
+        "fluctuation": 2000
+      },
+      {
+        "name": "娛樂",
+        "amount": 3000,
+        "fluctuation": 2000
+      },
+      {
+        "name": "AI",
+        "amount": 1500,
+        "fluctuation": 500
+      },
+      {
+        "name": "其他",
+        "amount": 12000,
+        "fluctuation": 2000
+      }
+    ],
+    "stocks": [
+      {
+        "symbol": "0050.TW",
+        "shares": 8295,
+        "currentPrice": 76.75,
+        "currency": "TWD",
+        "exchangeName": "TAI",
+        "volatility": 0.383,
+        "shortName": "YUANTA SECURITIES INV TRUST CO ",
+        "changePct": "63.21",
+        "exchangeRate": 1,
+        "dividendYield": 0.0177,
+        "payoutSchedule": [
+          {
+            "month": 1,
+            "yield": 0.013
+          },
+          {
+            "month": 7,
+            "yield": 0.0047
+          }
+        ],
+        "cagr": 0.0547,
+        "dataYears": 17.3,
+        "expectedReturn": 0.1281
+      },
+      {
+        "symbol": "006208",
+        "shares": 3000,
+        "currentPrice": 178.15,
+        "currency": "TWD",
+        "exchangeName": "TAI",
+        "volatility": 0.167,
+        "shortName": "FUBON ASSET MANAGEMENT CO LTD F",
+        "changePct": "61.51",
+        "exchangeRate": 1,
+        "dividendYield": 0.0249,
+        "payoutSchedule": [
+          {
+            "month": 7,
+            "yield": 0.0056
+          },
+          {
+            "month": 11,
+            "yield": 0.0194
+          }
+        ],
+        "cagr": 0.1376,
+        "dataYears": 13.8,
+        "expectedReturn": 0.1376
+      },
+      {
+        "symbol": "00878",
+        "shares": 10000,
+        "currentPrice": 22.37,
+        "currency": "TWD",
+        "exchangeName": "TAI",
+        "volatility": 0.131,
+        "shortName": "CATHAY SECS INV TRUST CO LTD TA",
+        "changePct": "0.18",
+        "exchangeRate": 1,
+        "dividendYield": 0.0755,
+        "payoutSchedule": [
+          {
+            "month": 2,
+            "yield": 0.0188
+          },
+          {
+            "month": 5,
+            "yield": 0.021
+          },
+          {
+            "month": 8,
+            "yield": 0.0179
+          },
+          {
+            "month": 11,
+            "yield": 0.0179
+          }
+        ],
+        "cagr": 0.0736,
+        "dataYears": 5.8,
+        "expectedReturn": 0.0736
+      },
+      {
+        "symbol": "2367",
+        "shares": 1000,
+        "currentPrice": 68.7,
+        "currency": "TWD",
+        "exchangeName": "TAI",
+        "volatility": 0.426,
+        "shortName": "UNITECH  PRINTED CIRCUIT BOARD ",
+        "changePct": "132.49",
+        "exchangeRate": 1,
+        "dividendYield": 0.0102,
+        "payoutSchedule": [
+          {
+            "month": 8,
+            "yield": 0.0102
+          }
+        ],
+        "cagr": 0.0895,
+        "dataYears": 20.1,
+        "expectedReturn": 0.0895
+      },
+      {
+        "symbol": "2885",
+        "shares": 7400,
+        "currentPrice": 45.85,
+        "currency": "TWD",
+        "exchangeName": "TAI",
+        "volatility": 0.275,
+        "shortName": "YUANTA FINANCIAL HOLDING CO. LT",
+        "changePct": "30.64",
+        "exchangeRate": 1,
+        "dividendYield": 0.0328,
+        "payoutSchedule": [
+          {
+            "month": 7,
+            "yield": 0.0328
+          }
+        ],
+        "cagr": 0.0788,
+        "dataYears": 20.1,
+        "expectedReturn": 0.0788
+      },
+      {
+        "symbol": "00679B",
+        "shares": 7000,
+        "currentPrice": 27.65,
+        "currency": "TWD",
+        "exchangeName": "TWO",
+        "volatility": 0.122,
+        "shortName": "YUANTA SECURITIES INV TRUST CO ",
+        "changePct": "-5.24",
+        "exchangeRate": 1,
+        "dividendYield": 0.042,
+        "payoutSchedule": [
+          {
+            "month": 2,
+            "yield": 0.0101
+          },
+          {
+            "month": 5,
+            "yield": 0.0116
+          },
+          {
+            "month": 8,
+            "yield": 0.0101
+          },
+          {
+            "month": 11,
+            "yield": 0.0101
+          }
+        ],
+        "cagr": -0.0343,
+        "dataYears": 9.3,
+        "expectedReturn": -0.034300000000000004
+      },
+      {
+        "symbol": "00933B",
+        "shares": 10000,
+        "currentPrice": 16.43,
+        "currency": "TWD",
+        "exchangeName": "TWO",
+        "volatility": 0.088,
+        "shortName": "CATHAY SECS INV TRUST CO LTD US",
+        "changePct": "-2.95",
+        "exchangeRate": 1,
+        "dividendYield": 0.0556,
+        "payoutSchedule": [
+          {
+            "month": 1,
+            "yield": 0.0044
+          },
+          {
+            "month": 2,
+            "yield": 0.0044
+          },
+          {
+            "month": 3,
+            "yield": 0.005
+          },
+          {
+            "month": 4,
+            "yield": 0.005
+          },
+          {
+            "month": 5,
+            "yield": 0.005
+          },
+          {
+            "month": 6,
+            "yield": 0.005
+          },
+          {
+            "month": 7,
+            "yield": 0.005
+          },
+          {
+            "month": 8,
+            "yield": 0.0044
+          },
+          {
+            "month": 9,
+            "yield": 0.0044
+          },
+          {
+            "month": 10,
+            "yield": 0.0044
+          },
+          {
+            "month": 11,
+            "yield": 0.0044
+          },
+          {
+            "month": 12,
+            "yield": 0.0044
+          }
+        ],
+        "cagr": 0.015,
+        "dataYears": 2.5,
+        "expectedReturn": 0.015
+      },
+      {
+        "symbol": "TSLA",
+        "shares": 20,
+        "currentPrice": 405.55,
+        "currency": "USD",
+        "exchangeName": "NMS",
+        "volatility": 0.565,
+        "shortName": "Tesla, Inc.",
+        "changePct": "45.31",
+        "exchangeRate": 32,
+        "cagr": 0.4352,
+        "dataYears": 15.8,
+        "expectedReturn": 0.1,
+        "dividendYield": 0,
+        "payoutSchedule": []
+      }
+    ],
+    "debts": [
+      {
+        "name": "信貸",
+        "totalRemaining": 600000,
+        "monthlyPayment": 10527,
+        "remainingPeriods": 61
+      }
+    ]
+  }
+}

@@ -6,6 +6,13 @@
 (function () {
     'use strict';
 
+    // Global Simulation Definitions
+    window._showRealValue = false;
+    window.deflate = (val, years) => {
+        if (!window._showRealValue || isNaN(val)) return val;
+        return val / Math.pow(1 + 0.02, years);
+    };
+
     // ---- State ----
     const state = {
         currentStep: 0,
@@ -630,10 +637,31 @@
             annualRaiseRate: raiseRate,
             scenario: scenario,
             insuranceSurrenderYear: window._surrenderYearOverride || null,
-            fireAgeOverride: window._fireAgeOverride || null
+            fireAgeOverride: window._fireAgeOverride || null,
+            enableSWR: document.getElementById('toggle-swr') ? document.getElementById('toggle-swr').checked : true
         };
 
         if (income <= 0) { alert('請輸入月收入'); showStep(0); return; }
+
+        // Bind global toggle listeners if not bound
+        const swrToggle = document.getElementById('toggle-swr');
+        if (swrToggle && !swrToggle.dataset.bound) {
+            swrToggle.dataset.bound = 'true';
+            swrToggle.addEventListener('change', () => {
+                window._isSliderReRun = true;
+                startSimulation();
+            });
+        }
+
+        const realValueToggle = document.getElementById('toggle-real-value');
+        if (realValueToggle && !realValueToggle.dataset.bound) {
+            realValueToggle.dataset.bound = 'true';
+            realValueToggle.addEventListener('change', () => {
+                if (state.simulationResults) {
+                    displayResults(state.simulationResults, state.baselineResults); // Just re-render, no need to re-simulate
+                }
+            });
+        }
 
         // Clear dynamic overrides for next fresh run from the "Start Simulation" button only
         // Do NOT clear them if this is a re-run triggered by a slider.
@@ -653,6 +681,10 @@
         loadingSub.textContent = `模擬 ${iterations.toLocaleString()} 種未來情境中`;
 
         setTimeout(() => {
+            // --- Real Value Toggle State ---
+            // Update global state before rendering
+            window._showRealValue = document.getElementById('toggle-real-value') ? document.getElementById('toggle-real-value').checked : false;
+
             // 1. Run main simulation (with decision)
             const simulator = new FinancialSimulator(config);
             const results = simulator.runSimulation(iterations);
@@ -678,6 +710,8 @@
         const section = document.getElementById('results-section');
         section.classList.add('active');
 
+        const finalYears = results.years || 40;
+
         const rateEl = document.getElementById('success-rate-num');
         animateNumber(rateEl, 0, Math.round(results.successRate * 100), 1200);
 
@@ -696,6 +730,22 @@
             results.medianNetWorth >= results.initialNetWorth ? 'text-green' : 'text-red');
         setStatValue('stat-retire-delay', results.retirementDelay + ' 年',
             results.retirementDelay <= 1 ? 'text-green' : results.retirementDelay <= 3 ? 'text-yellow' : 'text-red');
+
+        // Milestone Cards
+        const ms = results.milestones;
+        if (ms) {
+            setStatValue('stat-lean-fire', (ms.leanFireProb * 100).toFixed(1) + '%',
+                ms.leanFireProb >= 0.8 ? 'text-green' : ms.leanFireProb >= 0.5 ? 'text-yellow' : 'text-red');
+            document.getElementById('stat-lean-fire-age').textContent = ms.leanFireAge ? `${ms.leanFireAge} 歲達標 (目標 ${fmtCur(window.deflate(ms.leanFireTarget, finalYears))})` : `無法達標 (目標 ${fmtCur(window.deflate(ms.leanFireTarget, finalYears))})`;
+
+            setStatValue('stat-fat-fire', (ms.fatFireProb * 100).toFixed(1) + '%',
+                ms.fatFireProb >= 0.8 ? 'text-green' : ms.fatFireProb >= 0.5 ? 'text-yellow' : 'text-red');
+            document.getElementById('stat-fat-fire-age').textContent = ms.fatFireAge ? `${ms.fatFireAge} 歲達標 (目標 ${fmtCur(window.deflate(ms.fatFireTarget, finalYears))})` : `無法達標 (目標 ${fmtCur(window.deflate(ms.fatFireTarget, finalYears))})`;
+        } else {
+            document.getElementById('stat-lean-fire').style.display = 'none';
+            document.getElementById('stat-fat-fire').style.display = 'none';
+        }
+
         setStatValue('stat-iterations', results.iterations.toLocaleString(), 'text-purple');
 
         document.getElementById('recommendation-text').textContent = results.recommendation;
@@ -704,12 +754,17 @@
         const growth = results.medianNetWorth - initialNW;
         const growthPct = initialNW > 0 ? ((growth / initialNW) * 100).toFixed(1) : 'N/A';
 
+        const realGrowth = window.deflate(growth, finalYears);
+
         // Comparison logic
         const baselineRate = Math.round(baselineResults.successRate * 100);
         const decisionRate = Math.round(results.successRate * 100);
         const rateDiff = decisionRate - baselineRate;
         const diffText = rateDiff > 0 ? `提升了 ${rateDiff}%` : rateDiff < 0 ? `降低了 ${Math.abs(rateDiff)}%` : '持平';
         const benchmarkLabel = state.benchmarkResults ? `(目前基準: ${state.benchmarkResults.decisionName || '其他策略'})` : '(現狀 vs 執行後)';
+
+        const realP90 = window.deflate(results.p90, finalYears);
+        const realP10 = window.deflate(results.p10, finalYears);
 
         document.getElementById('recommendation-details').innerHTML = `
             <div class="recommendation-detail" style="border-left: 4px solid var(--accent-blue); padding-left: 10px; margin-bottom: 15px; background: rgba(0,255,255,0.05);">
@@ -722,11 +777,11 @@
             <div class="recommendation-detail"><span class="dot" style="background:${results.bankruptcyRate < 0.05 ? 'var(--accent-cyan)' : 'var(--accent-red)'}"></span>
                 模擬破產率 ${(results.bankruptcyRate * 100).toFixed(1)}%</div>
             <div class="recommendation-detail"><span class="dot" style="background:var(--accent-purple)"></span>
-                中位數資產成長 ${growthPct}%（${growth >= 0 ? '+' : ''}NT$ ${fmtCur(growth)}）</div>
+                中位數資產成長 ${growthPct}%（${growth >= 0 ? '+' : ''}NT$ ${fmtCur(realGrowth)}）</div>
             <div class="recommendation-detail"><span class="dot" style="background:var(--accent-purple)"></span>
-                樂觀資產 NT$ ${fmtCur(results.p90)}</div>
+                樂觀資產 NT$ ${fmtCur(realP90)}</div>
             <div class="recommendation-detail"><span class="dot" style="background:var(--accent-yellow)"></span>
-                保守資產 NT$ ${fmtCur(results.p10)}</div>
+                保守資產 NT$ ${fmtCur(realP10)}</div>
         `;
 
         const insSection = document.getElementById('insurance-stats-section');
@@ -837,8 +892,8 @@
 
         chartRenderer.destroyAll();
         chartRenderer.renderSuccessRate('chart-success', results.successRate);
-        chartRenderer.renderCashFlow('chart-cashflow', results, state.baselineResults);
-        chartRenderer.renderDistribution('chart-distribution', results.finalNetWorths);
+        chartRenderer.renderCashFlow('chart-cashflow', results, state.baselineResults); // milestones are inside results
+        chartRenderer.renderDistribution('chart-distribution', results.finalNetWorths, results.years || 40);
         chartRenderer.renderExpenseBreakdown('chart-expense', results.expenseBreakdown);
 
         // Year timeline
@@ -880,6 +935,11 @@
             const yearExpense = yearMonths.reduce((s, m) => s + m.expenses.total, 0);
             const yearNet = yearIncome - yearExpense;
 
+            const yIncomeReal = window.deflate ? window.deflate(yearIncome, y) : yearIncome;
+            const yExpenseReal = window.deflate ? window.deflate(yearExpense, y) : yearExpense;
+            const yLiquidReal = window.deflate ? window.deflate(lastMonth.liquidAssets, y) : lastMonth.liquidAssets;
+            const yNetReal = window.deflate ? window.deflate(lastMonth.netWorth, y) : lastMonth.netWorth;
+
             const yearDiv = document.createElement('div');
             yearDiv.className = 'year-card';
 
@@ -890,10 +950,10 @@
                         <span class="year-age">${lastMonth.age} 歲</span>
                     </div>
                     <div class="year-center">
-                        <span class="year-stat">收入 <span class="text-green">NT$ ${fmtCur(yearIncome)}</span></span>
-                        <span class="year-stat">支出 <span class="text-red">NT$ ${fmtCur(yearExpense)}</span></span>
-                        <span class="year-stat">流動資產 <span class="text-blue">NT$ ${fmtCur(lastMonth.liquidAssets)}</span></span>
-                        <span class="year-stat">淨值 <span class="${lastMonth.netWorth >= firstMonth.netWorth ? 'text-green' : 'text-red'}">NT$ ${fmtCur(lastMonth.netWorth)}</span></span>
+                        <span class="year-stat">收入 <span class="text-green">NT$ ${fmtCur(yIncomeReal)}</span></span>
+                        <span class="year-stat">支出 <span class="text-red">NT$ ${fmtCur(yExpenseReal)}</span></span>
+                        <span class="year-stat">流動資產 <span class="text-blue">NT$ ${fmtCur(yLiquidReal)}</span></span>
+                        <span class="year-stat">淨值 <span class="${lastMonth.netWorth >= firstMonth.netWorth ? 'text-green' : 'text-red'}">NT$ ${fmtCur(yNetReal)}</span></span>
                     </div>
                     <div class="year-right">
                         <span class="year-expand">▸</span>

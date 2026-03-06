@@ -96,7 +96,7 @@ class ChartRenderer {
         const datasets = [
             {
                 label: '樂觀 (P90)',
-                data: results.p90Path,
+                data: results.p90Path.map((v, i) => window.deflate ? window.deflate(v, i / 12) : v),
                 borderColor: this.colors.success,
                 backgroundColor: this.colors.successLight,
                 fill: false,
@@ -106,7 +106,7 @@ class ChartRenderer {
             },
             {
                 label: '中位數 (P50)',
-                data: results.medianPath,
+                data: results.medianPath.map((v, i) => window.deflate ? window.deflate(v, i / 12) : v),
                 borderColor: this.colors.primary,
                 backgroundColor: this.colors.primaryLight,
                 fill: false,
@@ -115,7 +115,7 @@ class ChartRenderer {
             },
             {
                 label: '保守 (P10)',
-                data: results.p10Path,
+                data: results.p10Path.map((v, i) => window.deflate ? window.deflate(v, i / 12) : v),
                 borderColor: this.colors.danger,
                 backgroundColor: this.colors.dangerLight,
                 fill: false,
@@ -128,13 +128,39 @@ class ChartRenderer {
         if (baselineResults && baselineResults.medianPath) {
             datasets.push({
                 label: '⚖️ 比較基準 (中位數)',
-                data: baselineResults.medianPath,
+                data: baselineResults.medianPath.map((v, i) => window.deflate ? window.deflate(v, i / 12) : v),
                 borderColor: this.colors.textDim,
                 backgroundColor: 'transparent',
                 fill: false,
                 borderWidth: 2,
                 pointRadius: 0,
                 borderDash: [5, 5],
+            });
+        }
+
+        if (results.milestones) {
+            const leanFIREData = Array(months).fill().map((_, i) => window.deflate ? window.deflate(results.milestones.leanFireTarget, i / 12) : results.milestones.leanFireTarget);
+            datasets.push({
+                label: '🎯 基礎退休目標',
+                data: leanFIREData,
+                borderColor: '#FF9800',
+                backgroundColor: 'transparent',
+                fill: false,
+                borderWidth: 1.5,
+                pointRadius: 0,
+                borderDash: [3, 3],
+            });
+
+            const fatFIREData = Array(months).fill().map((_, i) => window.deflate ? window.deflate(results.milestones.fatFireTarget, i / 12) : results.milestones.fatFireTarget);
+            datasets.push({
+                label: '🌴 寬裕退休目標',
+                data: fatFIREData,
+                borderColor: '#2196F3',
+                backgroundColor: 'transparent',
+                fill: false,
+                borderWidth: 1.5,
+                pointRadius: 0,
+                borderDash: [3, 3],
             });
         }
 
@@ -198,19 +224,22 @@ class ChartRenderer {
     /**
      * Final Net Worth Distribution Histogram
      */
-    renderDistribution(canvasId, finalNetWorths) {
+    renderDistribution(canvasId, finalNetWorths, years = 40) {
         const ctx = document.getElementById(canvasId);
         if (!ctx) return;
         if (this.charts[canvasId]) this.charts[canvasId].destroy();
 
+        // Deflate if active
+        const adjustedNW = finalNetWorths.map(val => window.deflate ? window.deflate(val, years) : val);
+
         // Create histogram bins
-        const min = Math.min(...finalNetWorths);
-        const max = Math.max(...finalNetWorths);
+        const min = Math.min(...adjustedNW);
+        const max = Math.max(...adjustedNW);
         const binCount = 30;
         const binWidth = (max - min) / binCount || 1;
         const bins = new Array(binCount).fill(0);
 
-        for (const val of finalNetWorths) {
+        for (const val of adjustedNW) {
             let idx = Math.floor((val - min) / binWidth);
             if (idx >= binCount) idx = binCount - 1;
             if (idx < 0) idx = 0;

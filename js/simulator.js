@@ -22,6 +22,7 @@ class FinancialSimulator {
         this.perpetualDividend = config.perpetualDividend || false; // whether insurance dividend continues indefinitely
         this.endAge = config.endAge || 85;
         this.fireAgeOverride = config.fireAgeOverride || null;
+        this.enableSWR = config.enableSWR !== false; // Default to true
 
         // Pre-calculate baseline values (if any)
         // this.precalculatedIncome = this.getYearlyIncome(); // This line was in the diff but seems to be a placeholder or incomplete. Keeping it commented out as it's not a valid method call here.
@@ -294,8 +295,12 @@ class FinancialSimulator {
                     let annualMu = st.expectedReturn !== undefined ? st.expectedReturn : 0.08;
                     let annualVol = st.volatility || 0.25;
 
-                    // Black Swan: Depression Scenario (First 10 years)
-                    if (this.scenario === 'depression' && yearIndex < 10) {
+                    // Safe Withdrawal Rate (SWR) De-risking post-retirement
+                    if (this.enableSWR && currentAge >= effectiveRetireAge) {
+                        annualMu = 0.04; // 4% conservative return (Bonds/Fixed Income)
+                        annualVol = 0.06; // 6% low volatility
+                    } else if (this.scenario === 'depression' && yearIndex < 10) {
+                        // Black Swan: Depression Scenario (First 10 years)
                         annualMu = -0.15; // 15% drop per year
                         annualVol = 0.40; // 40% high volatility
                     }
@@ -584,6 +589,36 @@ class FinancialSimulator {
             };
         }
 
+        // --- Milestone Calculations (Lean FIRE & Fat FIRE) ---
+        const annualFixed = this.getTotalFixedExpenses() * 12;
+        const annualVar = this.variableExpenses.reduce((s, e) => s + (e.amount * 12), 0);
+        const annualEssentialExp = annualFixed + annualVar;
+        // Lean FIRE: 25x annual essential expenses
+        const leanFireTarget = annualEssentialExp * 25;
+        // Fat FIRE: 40x annual essential expenses
+        const fatFireTarget = annualEssentialExp * 40;
+
+        const leanFireProb = results.filter(r => Math.max(...r.netWorthPath) >= leanFireTarget).length / iterations;
+        const fatFireProb = results.filter(r => Math.max(...r.netWorthPath) >= fatFireTarget).length / iterations;
+
+        const findAgeHitTarget = (path, target) => {
+            for (let i = 0; i < path.length; i++) {
+                if (path[i] >= target) {
+                    return this.age + Math.floor(i / 12);
+                }
+            }
+            return null; // Never hits target in this path
+        };
+
+        const milestones = {
+            leanFireTarget: Math.round(leanFireTarget),
+            fatFireTarget: Math.round(fatFireTarget),
+            leanFireProb,
+            fatFireProb,
+            leanFireAge: findAgeHitTarget(medianPath, leanFireTarget),
+            fatFireAge: findAgeHitTarget(medianPath, fatFireTarget),
+        };
+
         return {
             iterations, years: simulationYears,
             successRate, shrinkRate, bankruptcyRate,
@@ -594,6 +629,7 @@ class FinancialSimulator {
             stressLevel, stressLabel, retirementDelay, recommendation,
             expenseBreakdown, finalNetWorths, insuranceStats,
             detailedPaths, // P10/P50/P90 monthly breakdowns
+            milestones, // FIRE targets and probabilities
             startAge: this.age,
             startYear: this.currentYear,
         };
