@@ -80,7 +80,7 @@ class ChartRenderer {
     /**
      * Cash Flow Trend Line Chart
      */
-    renderCashFlow(canvasId, results) {
+    renderCashFlow(canvasId, results, baselineResults) {
         const ctx = document.getElementById(canvasId);
         if (!ctx) return;
         if (this.charts[canvasId]) this.charts[canvasId].destroy();
@@ -93,42 +93,57 @@ class ChartRenderer {
             else labels.push('');
         }
 
+        const datasets = [
+            {
+                label: '樂觀 (P90)',
+                data: results.p90Path,
+                borderColor: this.colors.success,
+                backgroundColor: this.colors.successLight,
+                fill: false,
+                borderWidth: 1.5,
+                pointRadius: 0,
+                borderDash: [4, 2],
+            },
+            {
+                label: '中位數 (P50)',
+                data: results.medianPath,
+                borderColor: this.colors.primary,
+                backgroundColor: this.colors.primaryLight,
+                fill: false,
+                borderWidth: 2.5,
+                pointRadius: 0,
+            },
+            {
+                label: '保守 (P10)',
+                data: results.p10Path,
+                borderColor: this.colors.danger,
+                backgroundColor: this.colors.dangerLight,
+                fill: false,
+                borderWidth: 1.5,
+                pointRadius: 0,
+                borderDash: [4, 2],
+            },
+        ];
+
+        if (baselineResults && baselineResults.medianPath) {
+            datasets.push({
+                label: '⚖️ 比較基準 (中位數)',
+                data: baselineResults.medianPath,
+                borderColor: this.colors.textDim,
+                backgroundColor: 'transparent',
+                fill: false,
+                borderWidth: 2,
+                pointRadius: 0,
+                borderDash: [5, 5],
+            });
+        }
+
         const self = this;
         this.charts[canvasId] = new Chart(ctx, {
             type: 'line',
             data: {
                 labels,
-                datasets: [
-                    {
-                        label: '樂觀 (P90)',
-                        data: results.p90Path,
-                        borderColor: this.colors.success,
-                        backgroundColor: this.colors.successLight,
-                        fill: false,
-                        borderWidth: 1.5,
-                        pointRadius: 0,
-                        borderDash: [4, 2],
-                    },
-                    {
-                        label: '中位數 (P50)',
-                        data: results.medianPath,
-                        borderColor: this.colors.primary,
-                        backgroundColor: this.colors.primaryLight,
-                        fill: false,
-                        borderWidth: 2.5,
-                        pointRadius: 0,
-                    },
-                    {
-                        label: '保守 (P10)',
-                        data: results.p10Path,
-                        borderColor: this.colors.danger,
-                        backgroundColor: this.colors.dangerLight,
-                        fill: false,
-                        borderWidth: 1.5,
-                        pointRadius: 0,
-                        borderDash: [4, 2],
-                    },
-                ]
+                datasets: datasets
             },
             options: {
                 responsive: true,

@@ -90,6 +90,26 @@
                         <input type="number" class="form-input" id="raise-rate" value="3" min="0" max="20" step="0.5">
                         <p class="form-hint">一般上班族約 2-5%</p>
                     </div>
+
+                    <div class="section-divider mt-2">
+                        <h3 class="section-subtitle">⚙️ 模擬進階設定</h3>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label class="form-label" for="sim-iterations">模擬次數</label>
+                            <input type="number" class="form-input" id="sim-iterations" value="5000" min="1000"
+                                max="20000" step="1000">
+                            <p class="form-hint">次數越多越精準，但計算較慢 (建議 5000)</p>
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label" for="market-scenario">市場情境</label>
+                            <select class="form-input" id="market-scenario">
+                                <option value="normal">一般情境 (依歷史數據)</option>
+                                <option value="depression">十年大蕭條 (熊市 -15%/y)</option>
+                            </select>
+                            <p class="form-hint">測試極端經濟事件下的生存能力</p>
+                        </div>
+                    </div>
                 </div>
 
                 <!-- Step 2: Fixed Expenses -->
@@ -221,12 +241,22 @@
                                 <input type="number" class="form-input" id="ins-years" value="12" min="1" max="40">
                             </div>
                         </div>
-                        <div class="form-group">
-                            <label class="form-label" for="ins-exchange-rate">匯率 (1 USD = ? NTD)</label>
-                            <input type="number" class="form-input" id="ins-exchange-rate" value="32" min="0"
-                                step="0.1">
-                            <p class="form-hint">保費幣別為美元時，需乘以匯率換算為台幣</p>
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label class="form-label" for="ins-exchange-rate">匯率 (1 USD = ? NTD)</label>
+                                <input type="number" class="form-input" id="ins-exchange-rate" value="32" min="0"
+                                    step="0.1">
+                                <p class="form-hint">保费幣別美元時，需乘以匯率</p>
+                            </div>
+                            <div class="form-group" style="display: flex; align-items: center; padding-top: 25px;">
+                                <input type="checkbox" id="ins-perpetual" checked
+                                    style="width: 20px; height: 20px; margin-right: 10px;">
+                                <label for="ins-perpetual"
+                                    style="font-size: 1.1rem; cursor: pointer; color: var(--text-bright);">滿期後終身分紅</label>
+                            </div>
                         </div>
+                        <p class="form-hint" style="margin-top:-10px; margin-bottom: 10px;">
+                            勾選「終身分紅」後，即使繳費期滿，仍會持續每年發放最後一年額度的分紅。</p>
                         <div id="ins-preview" class="mt-2"></div>
                     </div>
 
@@ -312,6 +342,11 @@
                     <div class="stat-value">0%</div>
                     <div class="stat-label">資產縮水率</div>
                 </div>
+                <div class="stat-card" id="stat-bankrupt">
+                    <div class="stat-icon">💀</div>
+                    <div class="stat-value">0%</div>
+                    <div class="stat-label">模擬破產率</div>
+                </div>
                 <div class="stat-card" id="stat-median">
                     <div class="stat-icon">💰</div>
                     <div class="stat-value">NT$ 0</div>
@@ -361,6 +396,9 @@
                     <button class="timeline-tab active" data-scenario="median">📊 中位數</button>
                     <button class="timeline-tab" data-scenario="optimistic">🟢 樂觀</button>
                     <button class="timeline-tab" data-scenario="pessimistic">🔴 保守</button>
+                    <button class="timeline-tab" data-scenario="baseline"
+                        style="border-left: 2px solid rgba(255,255,255,0.1); margin-left: 5px; padding-left: 15px;">⚖️
+                        比較基準</button>
                 </div>
                 <div id="year-timeline"></div>
             </div>
@@ -388,6 +426,25 @@
                         <div class="stat-icon">📈</div>
                         <div class="stat-value">0%</div>
                         <div class="stat-label">分紅報酬率</div>
+                    </div>
+                </div>
+
+                <!-- Dynamic Surrender Section (Only visible for Insurance) -->
+                <div id="surrender-controls" class="stat-card"
+                    style="display: none; margin-top: 1.5rem; border-color: var(--accent-blue);">
+                    <h3 class="section-subtitle" style="margin-top: 0; font-size: 1.1rem;">💡 保單動態解約測試</h3>
+                    <p class="form-hint" style="font-size: 0.9rem; line-height: 1.4;">
+                        如果你在未來遇到嚴重的現金流短缺，你可以選擇在中途將保單解約（拿回投入本金），看看這筆救命錢能否幫你度過破產危機。拖動滑桿即時計算：</p>
+                    <div class="form-group" style="margin-top: 1rem;">
+                        <label class="form-label" for="surrender-year-slider">解約年份：<span id="surrender-year-display"
+                                class="text-blue" style="font-weight: bold;">不解約 (持有至最後)</span></label>
+                        <input type="range" id="surrender-year-slider" min="1" max="40" value="40"
+                            style="width: 100%; cursor: pointer;">
+                        <div
+                            style="display: flex; justify-content: space-between; font-size: 0.85rem; color: var(--text-dim); margin-top: 5px;">
+                            <span>第 1 年</span>
+                            <span>期滿 (不解約)</span>
+                        </div>
                     </div>
                 </div>
             </div>

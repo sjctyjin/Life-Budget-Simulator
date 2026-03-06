@@ -15,10 +15,17 @@ class FinancialSimulator {
         this.savings = config.savings || 0;
         this.debts = config.debts || []; // [{name, totalRemaining, monthlyPayment, remainingPeriods}]
         this.stocks = config.stocks || []; // [{symbol, shares, currentPrice, volatility, currency, exchangeRate}]
-        this.decision = config.decision || null;
+        this.decision = config.decision;
         this.annualRaiseRate = config.annualRaiseRate || 0.03;
         this.inflationRate = config.inflationRate || 0.02;
+        this.insuranceSurrenderYear = config.insuranceSurrenderYear || null; // dynamic surrender year
+        this.perpetualDividend = config.perpetualDividend || false; // whether insurance dividend continues indefinitely
+
+        // Pre-calculate baseline values (if any)
+        // this.precalculatedIncome = this.getYearlyIncome(); // This line was in the diff but seems to be a placeholder or incomplete. Keeping it commented out as it's not a valid method call here.
+
         this.bonusMonths = config.bonusMonths || 0; // year-end bonus in months of salary
+        this.scenario = config.scenario || 'normal'; // 'normal' or 'depression'
 
         // Calculate initial values
         this.totalDebtRemaining = this.debts.reduce((s, d) => s + d.totalRemaining, 0);
@@ -64,7 +71,14 @@ class FinancialSimulator {
         if (!this.decision || this.decision.type !== 'insurance' || !this.decision.insurance) return 0;
         const ins = this.decision.insurance;
         const years = this.decision.years || 12;
-        if (yearIndex >= years) return 0;
+        // For perpetual: after the payment term, keep paying at the final year's rate
+        if (yearIndex >= years) {
+            if (this.decision.perpetualDividend) {
+                const finalRate = ins.baseRate + ins.rateIncrement * (years - 1);
+                return ins.yearlyPremium * finalRate;
+            }
+            return 0;
+        }
         const rate = ins.baseRate + ins.rateIncrement * yearIndex;
         return ins.yearlyPremium * rate;
     }
@@ -107,7 +121,7 @@ class FinancialSimulator {
         let totalInsuranceDividends = 0;
 
         // Stock Liquidation Helper
-        const liquidateStocks = (amountNeeded) => {
+        const liquidateStocks = (amountNeeded, record = []) => {
             if (amountNeeded <= 0) return 0;
             let amountRaised = 0;
             for (const st of activeStocks) {
@@ -117,11 +131,21 @@ class FinancialSimulator {
                     const stillNeeded = amountNeeded - amountRaised;
                     if (value <= stillNeeded) {
                         amountRaised += value;
+                        record.push({
+                            symbol: st.symbol || st.shortName || '未命名',
+                            shares: st.shares,
+                            value: value
+                        });
                         st.shares = 0;
                     } else {
                         const sharesToSell = stillNeeded / st.priceNTD;
                         st.shares -= sharesToSell;
                         amountRaised += stillNeeded;
+                        record.push({
+                            symbol: st.symbol || st.shortName || '未命名',
+                            shares: sharesToSell,
+                            value: stillNeeded
+                        });
                     }
                 }
             }
@@ -149,6 +173,7 @@ class FinancialSimulator {
 
         let bankrupt = false;
         let bankruptMonth = -1;
+        let consecutiveNegativeLiquidAssets = 0;
 
         for (let month = 1; month <= totalMonths; month++) {
             const yearIndex = Math.floor((month - 1) / 12);
@@ -162,6 +187,15 @@ class FinancialSimulator {
                 monthlyIncome *= (1 + this.annualRaiseRate + this.randomNormal(0, 0.01));
                 if (isHouse) {
                     propertyValue *= (1 + houseAppreciationRate);
+                }
+
+                // --- SURRENDER CASH INJECTION ---
+                if (isInsurance && this.insuranceSurrenderYear && yearIndex === this.insuranceSurrenderYear) {
+                    // Inject the total premium paid back into cash balance as surrender value
+                    const ins = this.decision.insurance;
+                    const yearsPaid = Math.min(this.decision.years, this.insuranceSurrenderYear);
+                    const totalPaid = ins.yearlyPremium * yearsPaid;
+                    cashBalance += totalPaid;
                 }
             }
 
@@ -198,15 +232,18 @@ class FinancialSimulator {
                 }
             }
 
-            // --- DECISION COST ---
             let decisionExpense = 0;
             let insuranceDividend = 0;
+
+            // Surrender Check
+            const isSurrendered = this.insuranceSurrenderYear && yearIndex >= this.insuranceSurrenderYear;
+
+            // Pay premium logic
             if (month <= decisionYears * 12) {
                 if (isInsurance) {
-                    decisionExpense = insuranceMonthlyPremium;
-                    if (monthInYear === 12) {
-                        insuranceDividend = this.getInsuranceDividendForYear(yearIndex);
-                        totalInsuranceDividends += insuranceDividend;
+                    // Only pay if not surrendered early (though typically surrender happens after term)
+                    if (!isSurrendered) {
+                        decisionExpense = insuranceMonthlyPremium;
                     }
                 } else if (isHouse) {
                     decisionExpense = houseMonthlyMortgage;
@@ -215,10 +252,22 @@ class FinancialSimulator {
                 }
             }
 
+            // Dividend logic (can be perpetual)
+            if (isInsurance && !isSurrendered) {
+                // Pay dividend if we are in the payment term, OR if perpetual dividend is enabled
+                if (month <= decisionYears * 12 || this.decision.perpetualDividend) {
+                    if (monthInYear === 12) {
+                        insuranceDividend = this.getInsuranceDividendForYear(yearIndex);
+                        totalInsuranceDividends += insuranceDividend;
+                    }
+                }
+            }
+
             // --- STOCK RETURNS & DIVIDENDS ---
             let stockReturn = 0; // Unrealized gain/loss this month
             let stockDividendIncome = 0; // Realized cash dividend this month
             const stockReturnItems = {};
+            const dividendDetails = []; // Per-stock dividend breakdown
             for (const st of activeStocks) {
                 if (st.shares > 0 && st.priceNTD > 0) {
                     // 1. Dividend payout
@@ -228,13 +277,28 @@ class FinancialSimulator {
                             // Dividend is cash generated based on current value and the specific month's yield
                             const dividendCash = st.priceNTD * st.shares * payout.yield;
                             stockDividendIncome += dividendCash;
+                            dividendDetails.push({
+                                symbol: st.symbol || st.shortName || '股票',
+                                shares: st.shares,
+                                priceNTD: st.priceNTD,
+                                yield: payout.yield,
+                                amount: dividendCash,
+                            });
                         }
                     }
 
                     // 2. Price fluctuation (Capital Gain/Loss)
-                    const monthlyVol = (st.volatility || 0.25) / Math.sqrt(12);
-                    const annualMu = st.expectedReturn !== undefined ? st.expectedReturn : 0.08;
-                    const monthlyMu = annualMu / 12; // use specific expected return (historic CAGR)
+                    let annualMu = st.expectedReturn !== undefined ? st.expectedReturn : 0.08;
+                    let annualVol = st.volatility || 0.25;
+
+                    // Black Swan: Depression Scenario (First 10 years)
+                    if (this.scenario === 'depression' && yearIndex < 10) {
+                        annualMu = -0.15; // 15% drop per year
+                        annualVol = 0.40; // 40% high volatility
+                    }
+
+                    const monthlyVol = annualVol / Math.sqrt(12);
+                    const monthlyMu = annualMu / 12;
                     const ret = this.randomNormal(monthlyMu, monthlyVol);
                     const previousValue = st.priceNTD * st.shares;
 
@@ -249,36 +313,67 @@ class FinancialSimulator {
                 }
             }
 
-            // --- DOLLAR-COST AVERAGING (DCA) ---
+            // --- NET CASH FLOW (PRE-INVESTMENT) ---
+            const totalEssentialExpenses = totalFixed + varResult.total + totalDebtPayment + decisionExpense;
+            const preInvestmentCashFlow = totalIncome + insuranceDividend + stockDividendIncome - totalEssentialExpenses;
+
+            cashBalance += preInvestmentCashFlow;
+
+            // --- SMART DOLLAR-COST AVERAGING (DCA) ---
+            // Only invest if we still have cash after essential expenses
+            let totalDCAAmount = 0;
+            const dcaItems = [];
+            const skippedDCA = [];
+
             for (const e of this.fixedExpenses) {
                 if (e.isInvestment && e.targetStock) {
+                    const amountToInvest = Math.round(e.amount * inflationFactor);
                     const targetSt = activeStocks.find(s => s.symbol === e.targetStock);
-                    if (targetSt && targetSt.priceNTD > 0) {
-                        const investedCash = Math.round(e.amount * inflationFactor);
-                        const sharesBought = investedCash / targetSt.priceNTD;
+
+                    if (targetSt && targetSt.priceNTD > 0 && cashBalance >= amountToInvest) {
+                        const sharesBought = amountToInvest / targetSt.priceNTD;
                         targetSt.shares += sharesBought;
+                        cashBalance -= amountToInvest;
+                        totalDCAAmount += amountToInvest;
+                        dcaItems.push({ name: e.name, amount: amountToInvest });
+                    } else if (e.isInvestment) {
+                        skippedDCA.push({ name: e.name, amount: amountToInvest });
                     }
                 }
             }
 
-            // --- NET CASH FLOW ---
-            const totalExpenses = totalFixed + varResult.total + totalDebtPayment + decisionExpense;
-            // Cash flow only includes actual cash in/out (excludes unrealized stock returns)
-            const cashFlow = totalIncome + insuranceDividend + stockDividendIncome - totalExpenses;
-
-            cashBalance += cashFlow;
+            // --- FINAL CASH BALANCE ADJUSTMENT (LIQUIDATION) ---
+            const liquidations = [];
             if (cashBalance < 0) {
-                const raised = liquidateStocks(-cashBalance);
+                const raised = liquidateStocks(-cashBalance, liquidations);
                 cashBalance += raised;
             }
 
+            const totalExpenses = totalEssentialExpenses + totalDCAAmount;
+            const cashFlow = totalIncome + insuranceDividend + stockDividendIncome - totalExpenses;
+
             // Net worth is cash + stocks (updated prices) + propertyValue - debt
-            netWorth = cashBalance + getStockValue() + propertyValue - getTotalDebtRemaining();
+            const currentStockValue = getStockValue();
+            const currentLiquidAssets = cashBalance + currentStockValue;
+            netWorth = cashBalance + currentStockValue + propertyValue - getTotalDebtRemaining();
             netWorthPath.push(netWorth);
 
-            if (cashBalance < -monthlyIncome * 3 && !bankrupt) {
-                bankrupt = true;
-                bankruptMonth = month;
+            // --- REALISTIC BANKRUPTCY CHECK ---
+            // Bankruptcy occurs if even after selling all stocks, you remain in debt for too long
+            // Or if you hit a massive debt floor that no one would lend you.
+            if (currentLiquidAssets < 0) {
+                consecutiveNegativeLiquidAssets++;
+            } else {
+                consecutiveNegativeLiquidAssets = 0;
+            }
+
+            if (!bankrupt) {
+                if (currentLiquidAssets < -500000 || consecutiveNegativeLiquidAssets >= 6) {
+                    bankrupt = true;
+                    bankruptMonth = month;
+                    // In a realistic sim, we break here because you're evicted/bankrupt
+                    break;
+                }
             }
 
             // Store monthly detail
@@ -304,6 +399,7 @@ class FinancialSimulator {
                         stockReturn: Math.round(stockReturn),
                         stockDividendIncome: Math.round(stockDividendIncome),
                         stockReturnItems,
+                        dividendDetails,
                         total: Math.round(totalIncome + insuranceDividend + stockDividendIncome), // only realized cash
                     },
                     expenses: {
@@ -321,8 +417,11 @@ class FinancialSimulator {
 
                     cashBalance: Math.round(cashBalance),
                     stockValue: Math.round(getStockValue()),
+                    liquidAssets: Math.round(cashBalance + getStockValue()),
                     debtRemaining: Math.round(getTotalDebtRemaining()),
                     netWorth: Math.round(netWorth),
+                    liquidations: liquidations,
+                    skippedDCA: skippedDCA,
                 });
             }
         }
@@ -342,10 +441,9 @@ class FinancialSimulator {
      * After main run, re-run 3 detailed paths for P10/P50/P90 breakdown
      */
     runSimulation(iterations = 5000) {
-        const years = this.decision
-            ? Math.max(this.decision.years || 10, 10)
-            : Math.min(this.retireAge - this.age, 30);
-        const simulationYears = Math.min(years, 30);
+        // Extend simulation to retirement age (default age 65)
+        const yearsToRetire = Math.max(this.retireAge - this.age, 10);
+        const simulationYears = Math.min(yearsToRetire, 50); // cap at 50 years max
 
         const results = [];
         const allPaths = [];
@@ -363,7 +461,8 @@ class FinancialSimulator {
         finalNetWorths.sort((a, b) => a - b);
 
         const initialNW = this.initialNetWorth;
-        const successCount = results.filter(r => r.finalNetWorth >= initialNW).length;
+        // Success Criteria: 1. Did not go bankrupt. 2. Final Net Worth >= Initial Net Worth
+        const successCount = results.filter(r => !r.bankrupt && r.finalNetWorth >= initialNW).length;
         const successRate = successCount / iterations;
         const shrinkCount = results.filter(r => r.finalNetWorth < initialNW).length;
         const shrinkRate = shrinkCount / iterations;
@@ -412,10 +511,15 @@ class FinancialSimulator {
 
         // Stress & recommendation
         let stressLevel, stressLabel;
-        if (successRate >= 0.8) { stressLevel = 'low'; stressLabel = '低'; }
-        else if (successRate >= 0.6) { stressLevel = 'medium'; stressLabel = '中'; }
-        else if (successRate >= 0.4) { stressLevel = 'high'; stressLabel = '高'; }
-        else { stressLevel = 'critical'; stressLabel = '極高'; }
+        if (bankruptcyRate >= 0.15) {
+            stressLevel = 'critical'; stressLabel = '極高 (高度破產風險)';
+        } else if (bankruptcyRate > 0.05 || successRate < 0.5) {
+            stressLevel = 'high'; stressLabel = '高 (有破產風險)';
+        } else if (bankruptcyRate > 0 || successRate < 0.7) {
+            stressLevel = 'medium'; stressLabel = '中 (需注意現金流)';
+        } else {
+            stressLevel = 'low'; stressLabel = '低 (財務穩健)';
+        }
 
         const monthlyNetIncome = this.income - this.getTotalFixedExpenses() -
             this.variableExpenses.reduce((s, e) => s + e.amount, 0) -
@@ -425,14 +529,16 @@ class FinancialSimulator {
         const retirementDelay = monthlyNetIncome > 0 ? Math.round(decisionTotalCost / (monthlyNetIncome * 12)) : 0;
 
         let recommendation;
-        if (successRate >= 0.8) {
-            recommendation = '✅ 資產增長率良好！在此決策下，你的資產有高機率在模擬期間持續成長，財務風險低。';
+        if (bankruptcyRate > 0.1) {
+            recommendation = '❌ 嚴重警告：破產風險極高！模擬顯示在此決策下，你有超過 10% 的機率會陷入現金流斷絕且無資產可賣的境地。強烈建議大幅下修決策規模或直接放棄。';
+        } else if (bankruptcyRate > 0) {
+            recommendation = '⚠️ 警告：存在破產風險。雖然最終資產可能成長，但在過程中你會經歷數個月甚至數年的流動性負值，現實中可能導致毀約或法拍。建議增加緊急預備金。';
+        } else if (successRate >= 0.8) {
+            recommendation = '✅ 資產增長率良好且無破產紀錄。在此決策下，你的資產有高機率在模擬期間持續成長，財務相當穩健。';
         } else if (successRate >= 0.6) {
-            recommendation = '⚠️ 中等風險。此決策下資產有一定機率縮水，建議提升收入或降低支出來增加安全邊際。';
-        } else if (successRate >= 0.4) {
-            recommendation = '🔶 風險偏高。超過半數模擬結果顯示資產會縮水，建議重新評估此決策的規模或時機。';
+            recommendation = '🟡 中等風險。雖然沒有直接破產風險，但資產增長緩慢且有縮水機率。建議提升收入或降低非必要支出。';
         } else {
-            recommendation = '🚫 高風險！大多數模擬結果顯示資產將縮水，此決策在目前財務狀況下不建議執行。';
+            recommendation = '🔶 風險偏高。雖然能撐過模擬期，但超過半數的情境顯示最終資產低於現狀，且現金流量吃緊。建議謹慎評估。';
         }
 
         // Expense breakdown for pie chart
@@ -458,15 +564,20 @@ class FinancialSimulator {
         let insuranceStats = null;
         if (this.decision && this.decision.type === 'insurance' && this.decision.insurance) {
             const ins = this.decision.insurance;
-            const totalPremium = ins.yearlyPremium * (this.decision.years || 12);
+            const surrenderYear = this.insuranceSurrenderYear || simulationYears;
+            const dividendEndYear = Math.min(surrenderYear, simulationYears);
+
+            const yearsPaid = Math.min(this.decision.years || 12, dividendEndYear);
+            const totalPremium = ins.yearlyPremium * yearsPaid;
+
             let totalDividend = 0;
-            for (let y = 0; y < (this.decision.years || 12); y++) {
-                totalDividend += ins.yearlyPremium * (ins.baseRate + ins.rateIncrement * y);
+            for (let y = 0; y < dividendEndYear; y++) {
+                totalDividend += this.getInsuranceDividendForYear(y);
             }
             insuranceStats = {
                 totalPremium, expectedTotalDividend: totalDividend,
                 netCost: totalPremium - totalDividend,
-                roi: ((totalDividend / totalPremium) * 100).toFixed(1),
+                roi: totalPremium > 0 ? ((totalDividend / totalPremium) * 100).toFixed(1) : '0',
             };
         }
 
@@ -474,7 +585,7 @@ class FinancialSimulator {
             iterations, years: simulationYears,
             successRate, shrinkRate, bankruptcyRate,
             initialNetWorth: initialNW,
-            medianNetWorth: p50, p10, p25, p50, p75, p90,
+            medianNetWorth: p50, p10, p25, p75, p90,
             medianPath, p10Path, p90Path,
             samplePaths: allPaths.slice(0, 20),
             stressLevel, stressLabel, retirementDelay, recommendation,

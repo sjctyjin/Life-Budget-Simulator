@@ -97,6 +97,8 @@ async function fetchStockData(symbol) {
                     // CAGR calculation
                     if (firstClose > 0 && lastClose > 0) {
                         historicalCAGR = Math.pow(lastClose / firstClose, 1 / dataYears) - 1;
+                        // Cap at 15% to prevent unrealistic 30yr extrapolations to billions
+                        historicalCAGR = Math.min(historicalCAGR, 0.15);
                     }
 
                     // Historical Volatility (from monthly returns)

@@ -24,6 +24,8 @@
         selectedDecision: null,
         currentScenario: 'median', // for year timeline
         simulationResults: null,
+        baselineResults: null,
+        benchmarkResults: null, // User-saved benchmark
     };
 
     const chartRenderer = new ChartRenderer();
@@ -87,6 +89,28 @@
     }
 
     function bindNavigation() {
+        document.getElementById('btn-export-csv').addEventListener('click', () => {
+            if (state.simulationResults) {
+                exportDetailedPathToCSV(state.simulationResults.detailedPaths.median, 'median');
+            }
+        });
+
+        // Benchmark logic
+        const btnBenchmark = document.getElementById('btn-set-benchmark');
+        if (btnBenchmark) {
+            btnBenchmark.addEventListener('click', () => {
+                if (state.simulationResults) {
+                    state.benchmarkResults = state.simulationResults;
+                    state.benchmarkResults.decisionName = state.selectedDecision ? document.getElementById('decision-name')?.value || '自訂策略' : '無選項';
+                    if (state.selectedDecision === 'insurance') state.benchmarkResults.decisionName = document.getElementById('ins-name').value || '保單策略';
+                    if (state.selectedDecision === 'house') state.benchmarkResults.decisionName = document.getElementById('house-name').value || '買房策略';
+
+                    alert(`✅ 已將目前的「${state.benchmarkResults.decisionName}」結果儲存為比較基準！\n\n你可以回到首頁修改其它設定，再次執行模擬時，系統就會拿新設定與這個基準對比。`);
+                    btnBenchmark.textContent = '⭐ 已設為基準';
+                    setTimeout(() => { btnBenchmark.textContent = '⭐ 儲存為比較基準'; }, 3000);
+                }
+            });
+        }
         document.getElementById('btn-prev')?.addEventListener('click', () => {
             if (state.currentStep > 0) showStep(state.currentStep - 1);
         });
@@ -96,7 +120,6 @@
         });
     }
 
-    // ---- Fixed Expenses ----
     // ---- Fixed Expenses ----
     function renderFixedExpenses() {
         const c = document.getElementById('fixed-expense-list');
@@ -137,7 +160,7 @@
                         ${stockOptions}
                     </select>
                 </div>
-                <button class="btn-remove" data-index="${i}" style="position:absolute; top: 15px; right: 15px;">×</button>
+                <button class="btn-remove" data-index="${i}">×</button>
             `;
 
             // Re-bind listeners
@@ -413,7 +436,7 @@
 
     // ---- Insurance Preview ----
     function bindInsurancePreview() {
-        ['ins-yearly-premium', 'ins-base-rate', 'ins-rate-increment', 'ins-years', 'ins-exchange-rate', 'ins-premium-currency'].forEach(id => {
+        ['ins-yearly-premium', 'ins-base-rate', 'ins-rate-increment', 'ins-years', 'ins-exchange-rate', 'ins-premium-currency', 'ins-perpetual'].forEach(id => {
             const el = document.getElementById(id);
             if (el) { el.addEventListener('input', updateInsurancePreview); el.addEventListener('change', updateInsurancePreview); }
         });
@@ -429,6 +452,7 @@
         const rateIncrement = (parseFloat(document.getElementById('ins-rate-increment').value) || 0) / 100;
         const years = parseInt(document.getElementById('ins-years').value) || 12;
         const exchangeRate = parseFloat(document.getElementById('ins-exchange-rate').value) || 32;
+        const perpetualDividend = document.getElementById('ins-perpetual')?.checked || false;
         const sym = currency === 'USD' ? 'US$' : 'NT$';
 
         let totalPremium = 0, totalDividend = 0;
@@ -567,8 +591,9 @@
             const exchangeRate = parseFloat(document.getElementById('ins-exchange-rate').value) || 32;
             const yearlyPremiumNTD = currency === 'USD' ? yearlyPremium * exchangeRate : yearlyPremium;
             decision = {
-                type: 'insurance', name: document.getElementById('ins-name')?.value || '分紅保單',
+                type: 'insurance', name: document.getElementById('ins-name').value || '分紅保單',
                 monthlyCost: 0, upfrontCost: 0, years,
+                perpetualDividend: document.getElementById('ins-perpetual')?.checked || false,
                 insurance: { yearlyPremium: yearlyPremiumNTD, baseRate, rateIncrement, originalCurrency: currency, exchangeRate, originalYearlyPremium: yearlyPremium },
             };
         } else if (state.selectedDecision === 'house') {
@@ -589,6 +614,9 @@
             };
         }
 
+        const iterations = parseInt(document.getElementById('sim-iterations').value) || 5000;
+        const scenario = document.getElementById('market-scenario').value || 'normal';
+
         const config = {
             income, age, retireAge, bonusMonths,
             currentYear: new Date().getFullYear(),
@@ -599,24 +627,47 @@
             stocks: state.stocks.filter(s => s.shares > 0 && s.currentPrice > 0),
             decision,
             annualRaiseRate: raiseRate,
+            scenario: scenario,
+            insuranceSurrenderYear: window._surrenderYearOverride || null
         };
 
         if (income <= 0) { alert('請輸入月收入'); showStep(0); return; }
 
+        // Clear dynamic override for next fresh run
+        window._surrenderYearOverride = null;
+
         document.getElementById('wizard-section').classList.remove('active');
         document.getElementById('simulation-loading').classList.add('active');
 
+        // Update loading text
+        const loadingText = document.querySelector('.loading-text');
+        const loadingSub = document.querySelector('.loading-sub');
+        loadingText.textContent = `正在執行${scenario === 'depression' ? '黑天鵝' : '蒙地卡羅'}模擬...`;
+        loadingSub.textContent = `模擬 ${iterations.toLocaleString()} 種未來情境中`;
+
         setTimeout(() => {
+            // 1. Run main simulation (with decision)
             const simulator = new FinancialSimulator(config);
-            const results = simulator.runSimulation(5000);
+            const results = simulator.runSimulation(iterations);
+
+            // 2. Run baseline simulation
+            // Use saved benchmark if it exists, otherwise use 'No Decision'
+            const baselineResults = state.benchmarkResults || (() => {
+                const baselineConfig = { ...config, decision: null };
+                const baselineSimulator = new FinancialSimulator(baselineConfig);
+                return baselineSimulator.runSimulation(iterations);
+            })();
+
             state.simulationResults = results;
+            state.baselineResults = baselineResults;
+
             document.getElementById('simulation-loading').classList.remove('active');
-            displayResults(results, config);
+            displayResults(results, baselineResults);
         }, 1500);
     }
 
     // ---- Display Results ----
-    function displayResults(results) {
+    function displayResults(results, baselineResults) {
         const section = document.getElementById('results-section');
         section.classList.add('active');
 
@@ -632,6 +683,8 @@
 
         setStatValue('stat-shrink', (results.shrinkRate * 100).toFixed(1) + '%',
             results.shrinkRate < 0.2 ? 'text-green' : results.shrinkRate < 0.5 ? 'text-yellow' : 'text-red');
+        setStatValue('stat-bankrupt', (results.bankruptcyRate * 100).toFixed(1) + '%',
+            results.bankruptcyRate === 0 ? 'text-green' : results.bankruptcyRate < 0.05 ? 'text-yellow' : 'text-red');
         setStatValue('stat-median', 'NT$ ' + fmtCur(results.medianNetWorth),
             results.medianNetWorth >= results.initialNetWorth ? 'text-green' : 'text-red');
         setStatValue('stat-retire-delay', results.retirementDelay + ' 年',
@@ -643,10 +696,25 @@
         const initialNW = results.initialNetWorth;
         const growth = results.medianNetWorth - initialNW;
         const growthPct = initialNW > 0 ? ((growth / initialNW) * 100).toFixed(1) : 'N/A';
+
+        // Comparison logic
+        const baselineRate = Math.round(baselineResults.successRate * 100);
+        const decisionRate = Math.round(results.successRate * 100);
+        const rateDiff = decisionRate - baselineRate;
+        const diffText = rateDiff > 0 ? `提升了 ${rateDiff}%` : rateDiff < 0 ? `降低了 ${Math.abs(rateDiff)}%` : '持平';
+        const benchmarkLabel = state.benchmarkResults ? `(目前基準: ${state.benchmarkResults.decisionName || '其他策略'})` : '(現狀 vs 執行後)';
+
         document.getElementById('recommendation-details').innerHTML = `
+            <div class="recommendation-detail" style="border-left: 4px solid var(--accent-blue); padding-left: 10px; margin-bottom: 15px; background: rgba(0,255,255,0.05);">
+                <strong>📋 決策對比 ${benchmarkLabel}</strong><br>
+                比較基準成功率：${baselineRate}%<br>
+                目前策略成功率：${decisionRate}% (${diffText})
+            </div>
             <div class="recommendation-detail"><span class="dot" style="background:${rate >= 0.6 ? 'var(--accent-green)' : 'var(--accent-red)'}"></span>
-                資產增長成功率 ${Math.round(rate * 100)}%（初始 NT$ ${fmtCur(initialNW)} → 中位數 NT$ ${fmtCur(results.medianNetWorth)}）</div>
-            <div class="recommendation-detail"><span class="dot" style="background:var(--accent-cyan)"></span>
+                整體增長成功率 ${decisionRate}%（排除破產路徑）</div>
+            <div class="recommendation-detail"><span class="dot" style="background:${results.bankruptcyRate < 0.05 ? 'var(--accent-cyan)' : 'var(--accent-red)'}"></span>
+                模擬破產率 ${(results.bankruptcyRate * 100).toFixed(1)}%</div>
+            <div class="recommendation-detail"><span class="dot" style="background:var(--accent-purple)"></span>
                 中位數資產成長 ${growthPct}%（${growth >= 0 ? '+' : ''}NT$ ${fmtCur(growth)}）</div>
             <div class="recommendation-detail"><span class="dot" style="background:var(--accent-purple)"></span>
                 樂觀資產 NT$ ${fmtCur(results.p90)}</div>
@@ -654,23 +722,71 @@
                 保守資產 NT$ ${fmtCur(results.p10)}</div>
         `;
 
-        // Insurance stats
         const insSection = document.getElementById('insurance-stats-section');
+        const surrenderControls = document.getElementById('surrender-controls');
+
         if (results.insuranceStats) {
             insSection.style.display = 'block';
+            surrenderControls.style.display = 'block';
+
             setStatValue('stat-ins-total-premium', 'NT$ ' + fmtCur(results.insuranceStats.totalPremium), 'text-red');
             setStatValue('stat-ins-total-dividend', 'NT$ ' + fmtCur(results.insuranceStats.expectedTotalDividend), 'text-green');
             setStatValue('stat-ins-net-cost', 'NT$ ' + fmtCur(results.insuranceStats.netCost),
                 results.insuranceStats.netCost > 0 ? 'text-red' : 'text-green');
             setStatValue('stat-ins-roi', results.insuranceStats.roi + '%',
                 parseFloat(results.insuranceStats.roi) > 50 ? 'text-green' : 'text-yellow');
+
+            // Setup slider
+            const slider = document.getElementById('surrender-year-slider');
+            const sliderDisplay = document.getElementById('surrender-year-display');
+
+            // Set max to total simulation years
+            slider.max = results.years;
+
+            // Re-bind exact values based on current override state
+            const currentSurrenderYear = window._surrenderYearOverride;
+            if (currentSurrenderYear && currentSurrenderYear < results.years) {
+                slider.value = currentSurrenderYear;
+                sliderDisplay.textContent = `第 ${currentSurrenderYear} 年解約`;
+            } else {
+                slider.value = results.years;
+                sliderDisplay.textContent = '不解約 (持有至最後)';
+            }
+
+            // Avoid adding multiple listeners if displayResults is called multiple times
+            if (!slider.dataset.bound) {
+                slider.dataset.bound = 'true';
+                slider.addEventListener('change', (e) => {
+                    const year = parseInt(e.target.value);
+                    if (year === results.years) {
+                        window._surrenderYearOverride = null; // No surrender
+                        sliderDisplay.textContent = '不解約 (持有至最後)';
+                    } else {
+                        window._surrenderYearOverride = year;
+                        sliderDisplay.textContent = `第 ${year} 年解約`;
+                    }
+                    // Re-run the simulation silently but completely
+                    startSimulation();
+                });
+
+                slider.addEventListener('input', (e) => {
+                    const year = parseInt(e.target.value);
+                    if (year === results.years) {
+                        sliderDisplay.textContent = '不解約 (持有至最後)';
+                    } else {
+                        sliderDisplay.textContent = `第 ${year} 年解約`;
+                    }
+                });
+            }
+
         } else {
             insSection.style.display = 'none';
+            surrenderControls.style.display = 'none';
         }
 
         chartRenderer.destroyAll();
         chartRenderer.renderSuccessRate('chart-success', results.successRate);
-        chartRenderer.renderCashFlow('chart-cashflow', results);
+        chartRenderer.renderCashFlow('chart-cashflow', results, state.baselineResults);
         chartRenderer.renderDistribution('chart-distribution', results.finalNetWorths);
         chartRenderer.renderExpenseBreakdown('chart-expense', results.expenseBreakdown);
 
@@ -687,12 +803,21 @@
         container.innerHTML = '';
 
         const scenario = state.currentScenario;
-        const path = results.detailedPaths[scenario];
+        let path;
+        let labelAddon = '';
+
+        if (scenario === 'baseline' && state.baselineResults) {
+            path = state.baselineResults.detailedPaths['median'];
+            labelAddon = ' (比較基準)';
+        } else {
+            path = results.detailedPaths[scenario];
+        }
+
         if (!path || !path.monthlyDetails) return;
 
         const details = path.monthlyDetails;
-        const years = results.years;
-        const scenarioLabel = { optimistic: '🟢 樂觀', median: '📊 中位數', pessimistic: '🔴 保守' }[scenario];
+        const years = results.years || (state.baselineResults ? state.baselineResults.years : 40);
+        const scenarioLabel = { optimistic: '🟢 樂觀', median: '📊 中位數', pessimistic: '🔴 保守', baseline: '⚖️ 比較基準' }[scenario];
 
         for (let y = 0; y < years; y++) {
             const yearMonths = details.filter(m => m.yearIndex === y);
@@ -716,16 +841,17 @@
                     <div class="year-center">
                         <span class="year-stat">收入 <span class="text-green">NT$ ${fmtCur(yearIncome)}</span></span>
                         <span class="year-stat">支出 <span class="text-red">NT$ ${fmtCur(yearExpense)}</span></span>
+                        <span class="year-stat">流動資產 <span class="text-blue">NT$ ${fmtCur(lastMonth.liquidAssets)}</span></span>
                         <span class="year-stat">淨值 <span class="${lastMonth.netWorth >= firstMonth.netWorth ? 'text-green' : 'text-red'}">NT$ ${fmtCur(lastMonth.netWorth)}</span></span>
                     </div>
                     <div class="year-right">
                         <span class="year-expand">▸</span>
                     </div>
                 </div>
-                <div class="year-detail" id="year-detail-${y}" style="display: none;">
-                    ${renderMonthTable(yearMonths)}
-                </div>
-            `;
+            <div class="year-detail" id="year-detail-${y}" style="display: none;">
+                ${renderMonthTable(yearMonths)}
+            </div>
+        `;
 
             yearDiv.querySelector('.year-header').addEventListener('click', () => {
                 const detail = document.getElementById(`year-detail-${y}`);
@@ -750,7 +876,7 @@
             <thead><tr>
                 <th>月份</th><th>薪資</th><th>獎金</th><th>保單分紅</th><th>配息收入</th><th>未實現損益</th>
                 <th>固定支出</th><th>變動支出</th><th>貸款還款</th><th>決策支出</th>
-                <th>淨現金流</th><th>淨資產</th>
+                <th>淨現金流</th><th>現金存款</th><th>股票市值</th><th>流動資產</th><th>淨資產</th>
             </tr></thead><tbody>`;
 
         for (const m of months) {
@@ -758,7 +884,13 @@
 
             // Build tooltips for exact breakdown
             const fixedDetails = Object.entries(m.expenses.fixed)
-                .map(([k, v]) => `${k}: ${v.toLocaleString()}`)
+                .map(([k, v]) => {
+                    const isSkipped = m.skippedDCA && m.skippedDCA.some(s => s.name === k);
+                    if (isSkipped) {
+                        return `❌ ${k}: ${v.toLocaleString()} (餘額不足，已自動停扣保股)`;
+                    }
+                    return `${k}: ${v.toLocaleString()}`;
+                })
                 .join('\n');
             const varDetails = Object.entries(m.expenses.variable)
                 .map(([k, v]) => `${k}: ${v.toLocaleString()}`)
@@ -779,23 +911,110 @@
                 ).join('\n');
             }
 
+            let liquidationTooltip = "現金存款 (含當月淨現金流)";
+            if (m.liquidations && m.liquidations.length > 0) {
+                liquidationTooltip = "⚠️【警告：現金不足，強制變賣股票】\n" + m.liquidations.map(l =>
+                    `[${l.symbol}] 賣出: ${l.shares.toLocaleString(undefined, { maximumFractionDigits: 2 })} 股 | 套現: ${fmtCur(l.value)}`
+                ).join('\n');
+            }
+
             html += `<tr>
-                <td>${m.monthInYear} 月</td>
-                <td class="text-green" title="本薪">${fmtCur(m.income.salary)}</td>
-                <td class="${m.income.bonus > 0 ? 'text-yellow' : ''}" title="年終">${m.income.bonus > 0 ? fmtCur(m.income.bonus) : '-'}</td>
-                <td class="${m.income.insuranceDividend > 0 ? 'text-yellow' : ''}" title="保單年度分紅">${m.income.insuranceDividend > 0 ? fmtCur(m.income.insuranceDividend) : '-'}</td>
-                <td class="${m.income.stockDividendIncome > 0 ? 'text-green' : ''}" title="現金股利">${m.income.stockDividendIncome > 0 ? fmtCur(m.income.stockDividendIncome) : '-'}</td>
-                <td class="${m.income.stockReturn >= 0 ? 'text-green' : 'text-red'}" title="${stockDetails}">${m.income.stockReturn !== 0 ? fmtCur(m.income.stockReturn) : '-'}</td>
-                <td class="text-red" title="${fixedDetails}">${fmtCur(m.expenses.totalFixed)}</td>
-                <td class="text-red" title="${varDetails}">${fmtCur(m.expenses.totalVariable)}</td>
-                <td class="${m.expenses.totalDebt > 0 ? 'text-red' : ''}" title="${debtDetails}">${m.expenses.totalDebt > 0 ? fmtCur(m.expenses.totalDebt) : '-'}</td>
-                <td class="${m.expenses.decision > 0 ? 'text-red' : ''}" title="${decisionTooltip}">${m.expenses.decision > 0 ? fmtCur(m.expenses.decision) : '-'}</td>
-                <td class="${cf >= 0 ? 'text-green' : 'text-red'}" style="font-weight:600">${cf >= 0 ? '+' : ''}${fmtCur(cf)}</td>
-                <td style="font-weight:600">${fmtCur(m.netWorth)}</td>
-            </tr>`;
+                    <td>${m.monthInYear} 月</td>
+                    <td class="text-green" title="本薪">${fmtCur(m.income.salary)}</td>
+                    <td class="${m.income.bonus > 0 ? 'text-yellow' : ''}" title="年終">${m.income.bonus > 0 ? fmtCur(m.income.bonus) : '-'}</td>
+                    <td class="${m.income.insuranceDividend > 0 ? 'text-yellow' : ''}" title="保單年度分紅">${m.income.insuranceDividend > 0 ? fmtCur(m.income.insuranceDividend) : '-'}</td>
+                    <td class="${m.income.stockDividendIncome > 0 ? 'text-green' : ''}" title="${(() => {
+                    if (!m.income.dividendDetails || m.income.dividendDetails.length === 0) return '本月無配息';
+                    return '【當月配息明細】\n' + m.income.dividendDetails.map(d =>
+                        `[${d.symbol}] 股數: ${d.shares.toLocaleString(undefined, { maximumFractionDigits: 2 })} | 殖利率: ${(d.yield * 100).toFixed(2)}% | 配息: NT$ ${fmtCur(d.amount)}`
+                    ).join('\n');
+                })()}">${m.income.stockDividendIncome > 0 ? fmtCur(m.income.stockDividendIncome) : '-'}</td>
+                    <td class="${m.income.stockReturn >= 0 ? 'text-green' : 'text-red'}" title="${stockDetails}">${m.income.stockReturn !== 0 ? fmtCur(m.income.stockReturn) : '-'}</td>
+                    <td class="text-red" title="${fixedDetails}">${fmtCur(m.expenses.totalFixed)}</td>
+                    <td class="text-red" title="${varDetails}">${fmtCur(m.expenses.totalVariable)}</td>
+                    <td class="${m.expenses.totalDebt > 0 ? 'text-red' : ''}" title="${debtDetails}">${m.expenses.totalDebt > 0 ? fmtCur(m.expenses.totalDebt) : '-'}</td>
+                    <td class="${m.expenses.decision > 0 ? 'text-red' : ''}" title="${decisionTooltip}">${m.expenses.decision > 0 ? fmtCur(m.expenses.decision) : '-'}</td>
+                    <td class="${cf >= 0 ? 'text-green' : 'text-red'}" style="font-weight:600">${cf >= 0 ? '+' : ''}${fmtCur(cf)}</td>
+                    <td class="${m.liquidations.length > 0 ? 'text-red underline' : ''}" title="${liquidationTooltip}">${fmtCur(m.cashBalance)}</td>
+                    <td title="${stockDetails}">${fmtCur(m.stockValue)}</td>
+                    <td style="font-weight:600; color: var(--accent-blue);">${fmtCur(m.liquidAssets)}</td>
+                    <td style="font-weight:600">${fmtCur(m.netWorth)}</td>
+                </tr>`;
 
             // Show variable expense breakdown on hover/tooltip via title
         }
+
+        // --- Calculate Yearly Summary ---
+        const yearlySums = {
+            salary: 0, bonus: 0, insuranceDividend: 0, stockDividendIncome: 0, stockReturn: 0,
+            totalFixed: 0, totalVariable: 0, totalDebt: 0, decision: 0, netCashFlow: 0,
+            fixedDetails: {}, varDetails: {}, debtDetails: {}, dividendDetails: {}, stockReturnDetails: {}
+        };
+
+        for (const m of months) {
+            yearlySums.salary += m.income.salary;
+            yearlySums.bonus += m.income.bonus;
+            yearlySums.insuranceDividend += m.income.insuranceDividend;
+            yearlySums.stockDividendIncome += m.income.stockDividendIncome;
+            yearlySums.stockReturn += m.income.stockReturn;
+            yearlySums.totalFixed += m.expenses.totalFixed;
+            yearlySums.totalVariable += m.expenses.totalVariable;
+            yearlySums.totalDebt += m.expenses.totalDebt;
+            yearlySums.decision += m.expenses.decision;
+            yearlySums.netCashFlow += m.netCashFlow;
+
+            // Aggregate details
+            for (const [k, v] of Object.entries(m.expenses.fixed)) yearlySums.fixedDetails[k] = (yearlySums.fixedDetails[k] || 0) + v;
+            for (const [k, v] of Object.entries(m.expenses.variable)) yearlySums.varDetails[k] = (yearlySums.varDetails[k] || 0) + v;
+            for (const [k, v] of Object.entries(m.expenses.debts)) yearlySums.debtDetails[k] = (yearlySums.debtDetails[k] || 0) + v;
+
+            if (m.income.dividendDetails) {
+                for (const d of m.income.dividendDetails) {
+                    if (!yearlySums.dividendDetails[d.symbol]) yearlySums.dividendDetails[d.symbol] = { shares: d.shares, amount: 0 };
+                    yearlySums.dividendDetails[d.symbol].amount += d.amount;
+                }
+            }
+            if (m.income.stockReturnItems) {
+                for (const [k, v] of Object.entries(m.income.stockReturnItems)) {
+                    yearlySums.stockReturnDetails[k] = (yearlySums.stockReturnDetails[k] || 0) + v;
+                }
+            }
+        }
+
+        // Format summary tooltips
+        const sumFixedTooltip = "【年度固定支出加總】\n" + Object.entries(yearlySums.fixedDetails).map(([k, v]) => `${k}: ${v.toLocaleString()}`).join('\n');
+        const sumVarTooltip = "【年度變動支出加總】\n" + Object.entries(yearlySums.varDetails).map(([k, v]) => `${k}: ${v.toLocaleString()}`).join('\n');
+        const sumDebtTooltip = "【年度貸款還款加總】\n" + Object.entries(yearlySums.debtDetails).map(([k, v]) => `${k}: ${v.toLocaleString()}`).join('\n');
+
+        let sumDivTooltip = "本年度無配息";
+        if (Object.keys(yearlySums.dividendDetails).length > 0) {
+            sumDivTooltip = "【年度配息加總明細】\n" + Object.entries(yearlySums.dividendDetails)
+                .map(([sym, data]) => `[${sym}] 股數: ${data.shares.toLocaleString(undefined, { maximumFractionDigits: 2 })} | 總配息: NT$ ${fmtCur(data.amount)}`)
+                .join('\n');
+        }
+
+        let sumStockTooltip = "本年度無持股或未實現損益為0";
+        if (Object.keys(yearlySums.stockReturnDetails).length > 0) {
+            sumStockTooltip = "【年度股票漲跌加總】\n" + Object.entries(yearlySums.stockReturnDetails)
+                .map(([sym, gain]) => `[${sym}] 年度總漲跌: ${gain >= 0 ? '+' : ''}${fmtCur(gain)}`)
+                .join('\n');
+        }
+
+        // Add Year Summary Row
+        html += `<tr style="background: rgba(124, 58, 237, 0.1); border-top: 2px solid var(--border-accent); font-weight: 600;">
+            <td>年度總結</td>
+            <td class="text-green">${fmtCur(yearlySums.salary)}</td>
+            <td class="${yearlySums.bonus > 0 ? 'text-yellow' : ''}">${yearlySums.bonus > 0 ? fmtCur(yearlySums.bonus) : '-'}</td>
+            <td class="${yearlySums.insuranceDividend > 0 ? 'text-yellow' : ''}">${yearlySums.insuranceDividend > 0 ? fmtCur(yearlySums.insuranceDividend) : '-'}</td>
+            <td class="${yearlySums.stockDividendIncome > 0 ? 'text-green' : ''}" title="${sumDivTooltip}">${yearlySums.stockDividendIncome > 0 ? fmtCur(yearlySums.stockDividendIncome) : '-'}</td>
+            <td class="${yearlySums.stockReturn >= 0 ? 'text-green' : 'text-red'}" title="${sumStockTooltip}">${yearlySums.stockReturn !== 0 ? fmtCur(yearlySums.stockReturn) : '-'}</td>
+            <td class="text-red" title="${sumFixedTooltip}">${fmtCur(yearlySums.totalFixed)}</td>
+            <td class="text-red" title="${sumVarTooltip}">${fmtCur(yearlySums.totalVariable)}</td>
+            <td class="${yearlySums.totalDebt > 0 ? 'text-red' : ''}" title="${sumDebtTooltip}">${yearlySums.totalDebt > 0 ? fmtCur(yearlySums.totalDebt) : '-'}</td>
+            <td class="${yearlySums.decision > 0 ? 'text-red' : ''}">${yearlySums.decision > 0 ? fmtCur(yearlySums.decision) : '-'}</td>
+            <td class="${yearlySums.netCashFlow >= 0 ? 'text-green' : 'text-red'}">${yearlySums.netCashFlow >= 0 ? '+' : ''}${fmtCur(yearlySums.netCashFlow)}</td>
+            <td colspan="4" style="text-align: right; color: var(--text-dim); font-size: 0.85rem;">以上為年底結算數字</td>
+        </tr>`;
 
         html += `</tbody></table></div>`;
 
@@ -803,7 +1022,7 @@
         const firstMonth = months[0];
         if (firstMonth) {
             html += `<div class="month-detail-sub">
-                <strong>💡 小提示：</strong>將游標移到「固定支出」、「變動支出」、「貸款還款」或「決策支出」的數字上停留，即可看到該月的詳細項目與金額。
+            <strong>💡 小提示：</strong>將游標移到「固定支出」、「變動支出」、「貸款還款」或「決策支出」的數字上停留，即可看到該月的詳細項目與金額。
             </div>`;
         }
 
@@ -941,7 +1160,7 @@
             let csvContent = "data:text/csv;charset=utf-8,\uFEFF"; // Include BOM for Excel UTF-8
 
             // Header row
-            csvContent += "年齡,年份,月份,薪資,獎金,保單分紅,現金股利,未實現損益,固定支出,變動支出,貸款還款,決策支出,淨現金流,現金存款,股票市值,負債餘額,總淨資產\n";
+            csvContent += "年齡,年份,月份,薪資,獎金,保單分紅,現金股利,未實現損益,固定支出,變動支出,貸款還款,決策支出,淨現金流,現金存款,股票市值,流動資產,負債餘額,總淨資產\n";
 
             // Data rows
             path.monthlyDetails.forEach(m => {
@@ -961,6 +1180,7 @@
                     m.netCashFlow,
                     m.cashBalance,
                     m.stockValue,
+                    m.liquidAssets,
                     m.debtRemaining,
                     m.netWorth
                 ];
