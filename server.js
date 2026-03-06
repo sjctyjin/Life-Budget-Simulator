@@ -59,17 +59,16 @@ app.get('/api/stock/:symbol', async (req, res) => {
 });
 
 async function fetchStockData(symbol) {
-    // Fetch 1 year of data to get accurate volatility and trailing dividends
-    const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?interval=1d&range=1y&events=div`;
-    const data = await fetchJSON(url);
+    // 1. Fetch 1 year of daily data to get accurate current price and trailing dividends
+    const url1y = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?interval=1d&range=1y&events=div`;
+    const data1y = await fetchJSON(url1y);
 
-    if (!data || !data.chart || !data.chart.result || data.chart.result.length === 0) {
+    if (!data1y || !data1y.chart || !data1y.chart.result || data1y.chart.result.length === 0) {
         return null;
     }
 
-    const result = data.chart.result[0];
+    const result = data1y.chart.result[0];
     const meta = result.meta;
-    const quotes = result.indicators?.quote?.[0];
     const dividends = result.events?.dividends; // map of timestamp -> { date, amount }
 
     const currentPrice = meta.regularMarketPrice || 0;
@@ -78,22 +77,44 @@ async function fetchStockData(symbol) {
     const exchangeName = meta.exchangeName || '';
     const shortName = meta.shortName || symbol;
 
-    // Calculate annualized volatility from 1y daily closes
-    let volatility = 0.25; // default 25% annual
-    if (quotes && quotes.close) {
-        const closes = quotes.close.filter(c => c !== null);
-        if (closes.length >= Math.min(20, closes.length)) { // Need at least some points
-            const returns = [];
-            for (let i = 1; i < closes.length; i++) {
-                returns.push(Math.log(closes[i] / closes[i - 1]));
-            }
-            if (returns.length > 0) {
-                const mean = returns.reduce((a, b) => a + b, 0) / returns.length;
-                const variance = returns.reduce((a, r) => a + Math.pow(r - mean, 2), 0) / returns.length;
-                const dailyVol = Math.sqrt(variance);
-                volatility = dailyVol * Math.sqrt(252); // annualize
+    // 2. Fetch 20 years of monthly data for CAGR and long-term volatility
+    const url20y = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?interval=1mo&range=20y`;
+    let historicalCAGR = 0.08; // default 8%
+    let historicalVolatility = 0.25; // default 25%
+    let dataYears = 0;
+
+    try {
+        const data20y = await fetchJSON(url20y);
+        if (data20y && data20y.chart && data20y.chart.result && data20y.chart.result.length > 0) {
+            const quotes20y = data20y.chart.result[0].indicators?.quote?.[0];
+            if (quotes20y && quotes20y.close) {
+                const closes = quotes20y.close.filter(c => c !== null);
+                if (closes.length >= 12) { // At least 1 year of data
+                    const firstClose = closes[0];
+                    const lastClose = closes[closes.length - 1];
+                    dataYears = closes.length / 12;
+
+                    // CAGR calculation
+                    if (firstClose > 0 && lastClose > 0) {
+                        historicalCAGR = Math.pow(lastClose / firstClose, 1 / dataYears) - 1;
+                    }
+
+                    // Historical Volatility (from monthly returns)
+                    const returns = [];
+                    for (let i = 1; i < closes.length; i++) {
+                        returns.push(Math.log(closes[i] / closes[i - 1]));
+                    }
+                    if (returns.length > 0) {
+                        const mean = returns.reduce((a, b) => a + b, 0) / returns.length;
+                        const variance = returns.reduce((a, r) => a + Math.pow(r - mean, 2), 0) / returns.length;
+                        const monthlyVol = Math.sqrt(variance);
+                        historicalVolatility = monthlyVol * Math.sqrt(12); // annualize
+                    }
+                }
             }
         }
+    } catch (e) {
+        console.warn(`Could not fetch 20y history for ${symbol}, using defaults.`);
     }
 
     // Process Dividends over the trailing 1 year
@@ -105,7 +126,7 @@ async function fetchStockData(symbol) {
             const month = date.getMonth() + 1; // 1-12
             ttmDividend += div.amount;
 
-            // Calculate yield share for this specific month (e.g. if price is 100, and this month paid 2, yieldShare is 0.02)
+            // Calculate yield share for this specific month
             const yieldShare = div.amount / currentPrice;
             if (dividendMonths[month]) {
                 dividendMonths[month] += yieldShare;
@@ -115,7 +136,6 @@ async function fetchStockData(symbol) {
         });
     }
 
-    // Prepare an array of { month, yield }
     const payoutSchedule = Object.keys(dividendMonths)
         .map(m => ({ month: parseInt(m), yield: Math.round(dividendMonths[m] * 10000) / 10000 }))
         .sort((a, b) => a.month - b.month);
@@ -129,11 +149,13 @@ async function fetchStockData(symbol) {
         previousClose,
         currency,
         exchangeName,
-        volatility: Math.round(volatility * 1000) / 1000,
+        volatility: Math.round(historicalVolatility * 1000) / 1000,
+        cagr: Math.round(historicalCAGR * 10000) / 10000, // as decimal (e.g. 0.0815 for 8.15%)
+        dataYears: Math.round(dataYears * 10) / 10,
         change: currentPrice - previousClose,
         changePct: previousClose > 0 ? ((currentPrice - previousClose) / previousClose * 100).toFixed(2) : 0,
-        dividendYield: Math.round(dividendYield * 10000) / 10000, // as decimal (e.g. 0.05 for 5%)
-        payoutSchedule // [{ month: 1, yield: 0.02 }, { month: 7, yield: 0.03 }]
+        dividendYield: Math.round(dividendYield * 10000) / 10000,
+        payoutSchedule
     };
 }
 

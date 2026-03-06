@@ -215,7 +215,12 @@
                 ? `${st.currency || ''} ${st.currentPrice.toFixed(2)}`
                 : '尚未取得';
             const changeClass = (st.changePct || 0) >= 0 ? 'text-green' : 'text-red';
-            const volDisplay = st.volatility ? `${(st.volatility * 100).toFixed(1)}%` : '-';
+
+            // For older saves, default to 0.08 if expectedReturn isn't defined
+            const expectedReturn = st.expectedReturn !== undefined ? st.expectedReturn : (st.cagr !== undefined ? st.cagr : 0.08);
+
+            let volDisplay = st.volatility ? `歷史波動率 ${(st.volatility * 100).toFixed(1)}%` : '波動率 -';
+            if (st.dataYears > 0) volDisplay += ` (基於 ${st.dataYears}年)`;
 
             let divDisplay = '';
             if (st.dividendYield > 0) {
@@ -233,6 +238,10 @@
                         <label class="form-label">股數</label>
                         <input type="number" class="form-input" value="${st.shares}" data-field="stock-shares" data-index="${i}" min="0">
                     </div>
+                    <div class="form-group" style="flex:0.7">
+                        <label class="form-label">預期年報酬率 (%)</label>
+                        <input type="number" class="form-input" value="${+(expectedReturn * 100).toFixed(2)}" data-field="stock-return" data-index="${i}" step="0.5">
+                    </div>
                     <div class="form-group" style="flex:0.4">
                         <button class="btn btn-sm btn-secondary btn-fetch" data-index="${i}">🔍 查價</button>
                     </div>
@@ -242,7 +251,8 @@
                     <span class="stock-name">${st.shortName || st.symbol}</span>
                     <span class="stock-price">${priceDisplay}</span>
                     <span class="${changeClass}">${st.changePct ? (st.changePct >= 0 ? '+' : '') + st.changePct + '%' : ''}</span>
-                    <span class="stock-vol">波動率 ${volDisplay}</span>
+                    <span class="stock-vol text-cyan">${st.cagr !== undefined ? `歷史年化(CAGR) ${(st.cagr * 100).toFixed(2)}%` : ''}</span>
+                    <span class="stock-vol">${volDisplay}</span>
                     ${divDisplay}
                     <span class="stock-exchange">${st.exchangeName || ''}</span>
                 </div>
@@ -253,6 +263,7 @@
                     const idx = parseInt(e.target.dataset.index);
                     if (e.target.dataset.field === 'stock-symbol') state.stocks[idx].symbol = e.target.value.toUpperCase();
                     if (e.target.dataset.field === 'stock-shares') state.stocks[idx].shares = parseFloat(e.target.value) || 0;
+                    if (e.target.dataset.field === 'stock-return') state.stocks[idx].expectedReturn = (parseFloat(e.target.value) || 0) / 100;
                 });
             });
             div.querySelector('.btn-fetch').addEventListener('click', () => fetchStockPrice(i));
@@ -288,6 +299,9 @@
                 volatility: data.volatility,
                 shortName: data.shortName,
                 changePct: data.changePct,
+                cagr: data.cagr,
+                dataYears: data.dataYears,
+                expectedReturn: data.cagr, // Set default expected return to the fetched historical CAGR
                 dividendYield: data.dividendYield,
                 payoutSchedule: data.payoutSchedule,
                 exchangeRate: data.currency === 'TWD' ? 1 : 32, // default exchange rate for non-TWD
@@ -375,15 +389,22 @@
 
                 const generalForm = document.getElementById('decision-form');
                 const insuranceForm = document.getElementById('insurance-form');
+                const houseForm = document.getElementById('house-form');
 
                 if (state.selectedDecision === 'insurance') {
                     if (generalForm) generalForm.style.display = 'none';
+                    if (houseForm) houseForm.style.display = 'none';
                     if (insuranceForm) { insuranceForm.style.display = 'block'; updateInsurancePreview(); }
+                } else if (state.selectedDecision === 'house') {
+                    if (generalForm) generalForm.style.display = 'none';
+                    if (insuranceForm) insuranceForm.style.display = 'none';
+                    if (houseForm) houseForm.style.display = 'block';
                 } else {
                     if (insuranceForm) insuranceForm.style.display = 'none';
+                    if (houseForm) houseForm.style.display = 'none';
                     if (generalForm) generalForm.style.display = 'block';
                     const nameInput = document.getElementById('decision-name');
-                    const names = { house: '購買房產', car: '購買車輛', business: '創業投資', custom: '自訂決策' };
+                    const names = { car: '購買車輛', business: '創業投資', custom: '自訂決策' };
                     if (nameInput) nameInput.value = names[state.selectedDecision] || '自訂決策';
                 }
             });
@@ -518,6 +539,10 @@
             const idx = parseInt(input.dataset.index);
             if (state.stocks[idx]) state.stocks[idx].shares = parseFloat(input.value) || 0;
         });
+        document.querySelectorAll('[data-field="stock-return"]').forEach(input => {
+            const idx = parseInt(input.dataset.index);
+            if (state.stocks[idx]) state.stocks[idx].expectedReturn = (parseFloat(input.value) || 0) / 100;
+        });
     }
 
     // ---- Simulation ----
@@ -545,6 +570,15 @@
                 type: 'insurance', name: document.getElementById('ins-name')?.value || '分紅保單',
                 monthlyCost: 0, upfrontCost: 0, years,
                 insurance: { yearlyPremium: yearlyPremiumNTD, baseRate, rateIncrement, originalCurrency: currency, exchangeRate, originalYearlyPremium: yearlyPremium },
+            };
+        } else if (state.selectedDecision === 'house') {
+            decision = {
+                type: 'house', name: document.getElementById('house-name')?.value || '購買房產',
+                housePrice: parseFloat(document.getElementById('house-price').value) || 0,
+                appreciationRate: parseFloat(document.getElementById('house-appreciation').value) / 100 || 0,
+                upfrontCost: parseFloat(document.getElementById('house-upfront').value) || 0,
+                monthlyCost: parseFloat(document.getElementById('house-monthly').value) || 0,
+                years: parseInt(document.getElementById('house-years').value) || 30,
             };
         } else if (state.selectedDecision) {
             decision = {
@@ -738,13 +772,20 @@
                 decisionTooltip = `${m.expenses.decisionName || '決策/保險支出'}: ${m.expenses.decision.toLocaleString()}`;
             }
 
+            let stockDetails = "股價未實現漲跌";
+            if (m.stockList && m.stockList.length > 0) {
+                stockDetails = "【當月持股明細】\n" + m.stockList.map(st =>
+                    `[${st.symbol}] 股價: ${st.price.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} | 股數: ${st.shares.toLocaleString(undefined, { maximumFractionDigits: 2 })} | 市值: ${fmtCur(st.value)}`
+                ).join('\n');
+            }
+
             html += `<tr>
                 <td>${m.monthInYear} 月</td>
                 <td class="text-green" title="本薪">${fmtCur(m.income.salary)}</td>
                 <td class="${m.income.bonus > 0 ? 'text-yellow' : ''}" title="年終">${m.income.bonus > 0 ? fmtCur(m.income.bonus) : '-'}</td>
                 <td class="${m.income.insuranceDividend > 0 ? 'text-yellow' : ''}" title="保單年度分紅">${m.income.insuranceDividend > 0 ? fmtCur(m.income.insuranceDividend) : '-'}</td>
                 <td class="${m.income.stockDividendIncome > 0 ? 'text-green' : ''}" title="現金股利">${m.income.stockDividendIncome > 0 ? fmtCur(m.income.stockDividendIncome) : '-'}</td>
-                <td class="${m.income.stockReturn >= 0 ? 'text-green' : 'text-red'}" title="股價未實現漲跌">${m.income.stockReturn !== 0 ? fmtCur(m.income.stockReturn) : '-'}</td>
+                <td class="${m.income.stockReturn >= 0 ? 'text-green' : 'text-red'}" title="${stockDetails}">${m.income.stockReturn !== 0 ? fmtCur(m.income.stockReturn) : '-'}</td>
                 <td class="text-red" title="${fixedDetails}">${fmtCur(m.expenses.totalFixed)}</td>
                 <td class="text-red" title="${varDetails}">${fmtCur(m.expenses.totalVariable)}</td>
                 <td class="${m.expenses.totalDebt > 0 ? 'text-red' : ''}" title="${debtDetails}">${m.expenses.totalDebt > 0 ? fmtCur(m.expenses.totalDebt) : '-'}</td>

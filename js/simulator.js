@@ -93,23 +93,55 @@ class FinancialSimulator {
             priceNTD: st.currency === 'USD' ? st.currentPrice * (st.exchangeRate || 32) : st.currentPrice,
         }));
 
-        // Insurance
+        // Insurance & Real Estate
         const isInsurance = this.decision && this.decision.type === 'insurance' && this.decision.insurance;
+        const isHouse = this.decision && this.decision.type === 'house';
+
         const insuranceMonthlyPremium = this.getInsuranceMonthlyPremium();
-        const decisionMonthlyCost = (!this.decision || isInsurance) ? 0 : (this.decision.monthlyCost || 0);
+        const decisionMonthlyCost = (!this.decision || isInsurance || isHouse) ? 0 : (this.decision.monthlyCost || 0);
+        const houseMonthlyMortgage = isHouse ? (this.decision.monthlyCost || 0) : 0;
+        let propertyValue = isHouse ? (this.decision.housePrice || 0) : 0;
+        const houseAppreciationRate = isHouse ? (this.decision.appreciationRate || 0) : 0;
+
         const decisionYears = this.decision ? (this.decision.years || years) : 0;
         let totalInsuranceDividends = 0;
+
+        // Stock Liquidation Helper
+        const liquidateStocks = (amountNeeded) => {
+            if (amountNeeded <= 0) return 0;
+            let amountRaised = 0;
+            for (const st of activeStocks) {
+                if (amountRaised >= amountNeeded) break;
+                if (st.shares > 0 && st.priceNTD > 0) {
+                    const value = st.shares * st.priceNTD;
+                    const stillNeeded = amountNeeded - amountRaised;
+                    if (value <= stillNeeded) {
+                        amountRaised += value;
+                        st.shares = 0;
+                    } else {
+                        const sharesToSell = stillNeeded / st.priceNTD;
+                        st.shares -= sharesToSell;
+                        amountRaised += stillNeeded;
+                    }
+                }
+            }
+            return amountRaised;
+        };
 
         // Apply upfront cost
         if (this.decision && this.decision.upfrontCost) {
             cashBalance -= this.decision.upfrontCost;
+            if (cashBalance < 0) {
+                const raised = liquidateStocks(-cashBalance);
+                cashBalance += raised;
+            }
         }
 
         // Calculate stock value
         const getStockValue = () => activeStocks.reduce((s, st) => s + st.priceNTD * st.shares, 0);
         const getTotalDebtRemaining = () => activeDebts.reduce((s, d) => s + Math.max(d.remaining, 0), 0);
 
-        let netWorth = cashBalance + getStockValue() - getTotalDebtRemaining();
+        let netWorth = cashBalance + getStockValue() + propertyValue - getTotalDebtRemaining();
         const netWorthPath = [netWorth];
 
         // Detail tracking
@@ -125,9 +157,12 @@ class FinancialSimulator {
             const calendarYear = this.currentYear + yearIndex;
             const inflationFactor = Math.pow(1 + this.inflationRate, yearIndex);
 
-            // Annual salary raise
+            // Annual salary raise & Property Appreciation
             if (month > 1 && monthInYear === 1) {
                 monthlyIncome *= (1 + this.annualRaiseRate + this.randomNormal(0, 0.01));
+                if (isHouse) {
+                    propertyValue *= (1 + houseAppreciationRate);
+                }
             }
 
             // --- INCOME ---
@@ -173,6 +208,8 @@ class FinancialSimulator {
                         insuranceDividend = this.getInsuranceDividendForYear(yearIndex);
                         totalInsuranceDividends += insuranceDividend;
                     }
+                } else if (isHouse) {
+                    decisionExpense = houseMonthlyMortgage;
                 } else {
                     decisionExpense = decisionMonthlyCost;
                 }
@@ -196,7 +233,8 @@ class FinancialSimulator {
 
                     // 2. Price fluctuation (Capital Gain/Loss)
                     const monthlyVol = (st.volatility || 0.25) / Math.sqrt(12);
-                    const monthlyMu = 0.08 / 12; // assume 8% annual expected return (capital appreciation)
+                    const annualMu = st.expectedReturn !== undefined ? st.expectedReturn : 0.08;
+                    const monthlyMu = annualMu / 12; // use specific expected return (historic CAGR)
                     const ret = this.randomNormal(monthlyMu, monthlyVol);
                     const previousValue = st.priceNTD * st.shares;
 
@@ -229,9 +267,13 @@ class FinancialSimulator {
             const cashFlow = totalIncome + insuranceDividend + stockDividendIncome - totalExpenses;
 
             cashBalance += cashFlow;
+            if (cashBalance < 0) {
+                const raised = liquidateStocks(-cashBalance);
+                cashBalance += raised;
+            }
 
-            // Net worth is cash + stocks (updated prices) - debt
-            netWorth = cashBalance + getStockValue() - getTotalDebtRemaining();
+            // Net worth is cash + stocks (updated prices) + propertyValue - debt
+            netWorth = cashBalance + getStockValue() + propertyValue - getTotalDebtRemaining();
             netWorthPath.push(netWorth);
 
             if (cashBalance < -monthlyIncome * 3 && !bankrupt) {
@@ -241,12 +283,20 @@ class FinancialSimulator {
 
             // Store monthly detail
             if (trackDetail) {
+                const currentStockList = activeStocks.map(st => ({
+                    symbol: st.symbol || st.shortName || '未命名',
+                    price: Math.round(st.priceNTD * 100) / 100,
+                    shares: Math.round(st.shares * 1000) / 1000,
+                    value: Math.round(st.priceNTD * st.shares)
+                }));
+
                 monthlyDetails.push({
                     month,
                     monthInYear,
                     yearIndex,
                     calendarYear,
                     age: currentAge,
+                    stockList: currentStockList,
                     income: {
                         salary: Math.round(salaryIncome),
                         bonus: Math.round(bonusIncome),
