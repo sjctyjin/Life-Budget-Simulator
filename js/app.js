@@ -442,8 +442,8 @@
         });
     }
 
-    // ---- Navigation ----
-    function bindNavigation() {
+    // ---- Decision Cards ----
+    function bindDecisionCards() {
         const cards = document.querySelectorAll('.decision-card');
         cards.forEach(card => {
             card.addEventListener('click', () => {
