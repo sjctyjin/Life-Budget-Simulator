@@ -359,6 +359,93 @@ class ChartRenderer {
             }
         });
     }
+
+    /**
+     * Leverage Ratio Line Chart
+     */
+    renderLeverage(canvasId, leveragePath, baselineLeveragePath = null) {
+        const ctx = document.getElementById(canvasId);
+        if (!ctx) return;
+        if (this.charts[canvasId]) this.charts[canvasId].destroy();
+
+        const months = leveragePath.length;
+        const labels = [];
+        for (let i = 0; i < months; i++) {
+            if (i % 12 === 0) labels.push(`第 ${i / 12} 年`);
+            else labels.push('');
+        }
+
+        const datasets = [
+            {
+                label: '槓桿倍率 (當前策略)',
+                data: leveragePath,
+                borderColor: this.colors.primary,
+                backgroundColor: this.colors.primaryLight,
+                fill: true,
+                borderWidth: 2,
+                pointRadius: 0,
+                tension: 0.3
+            }
+        ];
+
+        if (baselineLeveragePath) {
+            datasets.push({
+                label: '比較基準 (槓桿倍率)',
+                data: baselineLeveragePath,
+                borderColor: this.colors.textDim,
+                backgroundColor: 'transparent',
+                fill: false,
+                borderWidth: 2,
+                pointRadius: 0,
+                borderDash: [5, 5],
+                tension: 0.3
+            });
+        }
+
+        this.charts[canvasId] = new Chart(ctx, {
+            type: 'line',
+            data: { labels, datasets },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                interaction: { mode: 'index', intersect: false },
+                plugins: {
+                    legend: { labels: { color: this.colors.text, font: { size: 12 } } },
+                    tooltip: {
+                        backgroundColor: 'rgba(15, 15, 35, 0.9)',
+                        titleColor: '#fff',
+                        bodyColor: '#e2e8f0',
+                        callbacks: {
+                            label: function (ctx) {
+                                return ctx.dataset.label + ': ' + parseFloat(ctx.raw).toFixed(2) + 'x';
+                            }
+                        }
+                    }
+                },
+                scales: {
+                    x: {
+                        ticks: {
+                            color: this.colors.textDim,
+                            maxTicksLimit: 15,
+                            callback: function (val) {
+                                const label = this.getLabelForValue(val);
+                                return label || null;
+                            }
+                        },
+                        grid: { color: this.colors.grid },
+                    },
+                    y: {
+                        min: 1, // Leverage cannot be lower than 1 (Cash only)
+                        ticks: {
+                            color: this.colors.textDim,
+                            callback: function (val) { return val + 'x'; }
+                        },
+                        grid: { color: this.colors.grid },
+                    }
+                }
+            }
+        });
+    }
 }
 
 window.ChartRenderer = ChartRenderer;

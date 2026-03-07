@@ -178,6 +178,9 @@ class FinancialSimulator {
         let bankruptMonth = -1;
         let consecutiveNegativeLiquidAssets = 0;
 
+        let yearlyIncomeForTax = 0;
+        let previousYearIncomeForTax = 0;
+
         for (let month = 1; month <= totalMonths; month++) {
             const yearIndex = Math.floor((month - 1) / 12);
             const monthInYear = ((month - 1) % 12) + 1; // 1-12
@@ -211,9 +214,44 @@ class FinancialSimulator {
             }
             const totalIncome = salaryIncome + bonusIncome;
 
-            // --- FIXED EXPENSES ---
+            // Track Income for Tax Purposes
+            yearlyIncomeForTax += totalIncome;
+            if (monthInYear === 12) {
+                previousYearIncomeForTax = yearlyIncomeForTax;
+                yearlyIncomeForTax = 0;
+            }
+
+            // --- FIXED EXPENSES & TAX ---
             const fixedItems = {};
             let totalFixed = 0;
+
+            // Income Tax Calculation (Deducted in May)
+            if (monthInYear === 5 && previousYearIncomeForTax > 0) {
+                // Simplified 2024 Taiwan Tax Brackets (Single, no dependents)
+                const exemptionAndDeduction = 423000;
+                let netTaxable = Math.max(0, previousYearIncomeForTax - exemptionAndDeduction);
+                let taxPaid = 0;
+
+                if (netTaxable > 0) {
+                    if (netTaxable <= 590000) {
+                        taxPaid = netTaxable * 0.05;
+                    } else if (netTaxable <= 1330000) {
+                        taxPaid = netTaxable * 0.12 - 41300;
+                    } else if (netTaxable <= 2660000) {
+                        taxPaid = netTaxable * 0.20 - 147700;
+                    } else if (netTaxable <= 4980000) {
+                        taxPaid = netTaxable * 0.30 - 413700;
+                    } else {
+                        taxPaid = netTaxable * 0.40 - 911700;
+                    }
+                }
+                if (taxPaid > 0) {
+                    const roundedTax = Math.round(taxPaid);
+                    fixedItems['綜合所得稅 (上年度)'] = roundedTax;
+                    totalFixed += roundedTax;
+                }
+            }
+
             for (const e of this.fixedExpenses) {
                 const val = Math.round(e.amount * inflationFactor);
                 fixedItems[e.name] = val;
@@ -424,10 +462,13 @@ class FinancialSimulator {
                     netCashFlow: Math.round(cashFlow), // uses the calculated realized cash flow
 
                     cashBalance: Math.round(cashBalance),
-                    stockValue: Math.round(getStockValue()),
-                    liquidAssets: Math.round(cashBalance + getStockValue()),
+                    stockValue: Math.round(currentStockValue),
+                    liquidAssets: Math.round(currentLiquidAssets),
                     debtRemaining: Math.round(getTotalDebtRemaining()),
                     netWorth: Math.round(netWorth),
+                    totalAssets: Math.round(cashBalance + currentStockValue + propertyValue),
+                    leverageRatio: netWorth > 0 ? (Math.round(((cashBalance + currentStockValue + propertyValue) / netWorth) * 100) / 100) : 0,
+                    debtToLiquidRatio: currentLiquidAssets > 0 ? Math.round((getTotalDebtRemaining() / currentLiquidAssets) * 100) : 999,
                     liquidations: liquidations,
                     skippedDCA: skippedDCA,
                 });
@@ -492,29 +533,46 @@ class FinancialSimulator {
             p90Path.push(values[Math.floor(values.length * 0.9)]);
         }
 
-        // === RUN 3 DETAILED PATHS for representative scenarios ===
-        // We run fresh simulations and pick closest to P10/P50/P90
+        // === RUN 300 DETAILED PATHS for representative scenarios ===
+        // Higher candidate count ensure better fit for P10/P50/P90
         const detailedCandidates = [];
-        for (let i = 0; i < 100; i++) {
+        for (let i = 0; i < 300; i++) {
             const r = this.simulateOnePath(simulationYears, true);
             detailedCandidates.push(r);
         }
         detailedCandidates.sort((a, b) => a.finalNetWorth - b.finalNetWorth);
 
-        const findClosest = (target) => {
+        const calculateMSE = (path, targetCurve) => {
+            let sumSquareError = 0;
+            const len = Math.min(path.length, targetCurve.length);
+            for (let i = 0; i < len; i++) {
+                // Weight the error: later years are often larger in scale, 
+                // but we care about the "shape" of the curve.
+                // Log scale or normalized diff could be used, but simple MSE is usually sufficient
+                // if we normalize by the target value to avoid late-game bias.
+                const diff = (path[i] - targetCurve[i]);
+                sumSquareError += (diff * diff);
+            }
+            return sumSquareError / len;
+        };
+
+        const findClosest = (targetCurve) => {
             let best = detailedCandidates[0];
-            let bestDiff = Infinity;
+            let minMSE = Infinity;
             for (const c of detailedCandidates) {
-                const diff = Math.abs(c.finalNetWorth - target);
-                if (diff < bestDiff) { bestDiff = diff; best = c; }
+                const mse = calculateMSE(c.netWorthPath, targetCurve);
+                if (mse < minMSE) {
+                    minMSE = mse;
+                    best = c;
+                }
             }
             return best;
         };
 
         const detailedPaths = {
-            pessimistic: findClosest(p10),
-            median: findClosest(p50),
-            optimistic: findClosest(p90),
+            pessimistic: findClosest(p10Path),
+            median: findClosest(medianPath),
+            optimistic: findClosest(p90Path),
         };
 
         // Stress & recommendation
@@ -536,17 +594,114 @@ class FinancialSimulator {
             (this.decision?.upfrontCost || 0);
         const retirementDelay = monthlyNetIncome > 0 ? Math.round(decisionTotalCost / (monthlyNetIncome * 12)) : 0;
 
+        // Calculate Required Income Gap (Feature 28)
+        let incomeNeeded = 0;
+        if (bankruptcyRate > 0 || p50 < initialNW) {
+            // Logic 1: Cumulative deficit until the crash
+            const minLiquid = Math.min(...(detailedPaths.median.monthlyDetails.map(m => m.liquidAssets)));
+            let gapToSurvival = 0;
+            if (minLiquid < 0) {
+                const monthAtMin = detailedPaths.median.monthlyDetails.findIndex(m => m.liquidAssets === minLiquid);
+                gapToSurvival = Math.ceil(Math.abs(minLiquid) / (monthAtMin || 1));
+            }
+
+            // Logic 2: Cumulative deficit until the end of simulation to maintain initial net worth
+            const finalGap = Math.max(0, initialNW - p50);
+            const gapToSustainability = Math.ceil(finalGap / (simulationYears * 12));
+
+            // Logic 3: Current burn rate (if the last year is negative)
+            let gapToCashFlowPositive = 0;
+            const lastYearMonths = detailedPaths.median.monthlyDetails.slice(-12);
+            if (lastYearMonths.length > 0) {
+                const yearlyNet = lastYearMonths.reduce((sum, m) => sum + m.netCashFlow, 0);
+                if (yearlyNet < 0) {
+                    gapToCashFlowPositive = Math.ceil(Math.abs(yearlyNet) / 12);
+                }
+            }
+
+            // We suggest the maximum of these to be truly safe
+            incomeNeeded = Math.max(gapToSurvival, gapToSustainability, gapToCashFlowPositive);
+        }
+
+        // Detect Leverage Risk (Feature 27)
+        const earlyLeverage = detailedPaths.median.monthlyDetails.slice(0, 120).map(m => m.leverageRatio);
+        const maxEarlyLeverage = Math.max(...earlyLeverage);
+
+        // Feature 30: FIRE Accelerator Suggestion
+        const annualEssentialExp = (this.getTotalFixedExpenses() + this.variableExpenses.reduce((s, e) => s + e.amount, 0)) * 12;
+        const leanFireTarget = annualEssentialExp * 25;
+        const currentAge = this.age;
+        // If user is already near/past 35, suggest a 5-year goal
+        let targetAge = 35;
+        if (currentAge >= 33) {
+            targetAge = currentAge + 5;
+        }
+        let acceleratorAdvice = "";
+
+        console.log(`[FIRE Accelerator] Target: ${leanFireTarget}, Current Age: ${currentAge}, Target Age: ${targetAge}`);
+
+        if (targetAge > currentAge) {
+            const fireMonth = detailedPaths.median.monthlyDetails.findIndex(m => m.netWorth >= leanFireTarget);
+            const targetMonthIndex = (targetAge - currentAge) * 12;
+
+            console.log(`[FIRE Accelerator] fireMonth: ${fireMonth}, targetMonthIndex: ${targetMonthIndex}`);
+
+            // If we don't hit FIRE by targetAge or don't hit it at all
+            if (fireMonth === -1 || fireMonth > targetMonthIndex) {
+                const nwAtTarget = detailedPaths.median.monthlyDetails[targetMonthIndex]?.netWorth || 0;
+                const gap = leanFireTarget - nwAtTarget;
+
+                console.log(`[FIRE Accelerator] nwAtTarget: ${nwAtTarget}, gap: ${gap}`);
+
+                if (gap > 0) {
+                    // Future Value of Annuity Formula: FV = PMT * [((1 + r)^n - 1) / r]
+                    let weightedExpectedReturn = 0.08; // default 8%
+                    let totalVal = 0;
+                    let weightedSum = 0;
+                    for (const st of this.stocks) {
+                        const val = st.priceNTD * st.shares;
+                        totalVal += val;
+                        weightedSum += val * (st.expectedReturn !== undefined ? st.expectedReturn : 0.08);
+                    }
+                    if (totalVal > 0) {
+                        weightedExpectedReturn = weightedSum / totalVal;
+                    } else if (this.stocks.length > 0) {
+                        weightedExpectedReturn = this.stocks.reduce((acc, st) => acc + (st.expectedReturn !== undefined ? st.expectedReturn : 0.08), 0) / this.stocks.length;
+                    }
+
+                    const r = weightedExpectedReturn / 12; // monthly rate
+                    const n = targetMonthIndex;
+                    if (r > 0 && n > 0) {
+                        const factor = (Math.pow(1 + r, n) - 1) / r;
+                        const extraMonthly = Math.ceil(gap / factor);
+                        acceleratorAdvice = `\n\n🏎️ 加速建議：若想在 ${targetAge} 歲提早達成「基礎提領目標 (NT$ ${Math.round(leanFireTarget).toLocaleString()})」，建議每月需額外再投入約 NT$ ${extraMonthly.toLocaleString()} 元進入股市投資 (以預期年化報酬率 ${(weightedExpectedReturn * 100).toFixed(1)}% 計算)。`;
+                        console.log(`[FIRE Accelerator] Suggestion: ${extraMonthly}, r: ${r}`);
+                    }
+                }
+            } else {
+                console.log(`[FIRE Accelerator] Condition not met: fireMonth ${fireMonth} <= targetMonthIndex ${targetMonthIndex}`);
+            }
+        }
+
         let recommendation;
         if (bankruptcyRate > 0.1) {
-            recommendation = '❌ 嚴重警告：破產風險極高！模擬顯示在此決策下，你有超過 10% 的機率會陷入現金流斷絕且無資產可賣的境地。強烈建議大幅下修決策規模或直接放棄。';
+            recommendation = `❌ 嚴重警告：破產風險極高 (${(bankruptcyRate * 100).toFixed(1)}%)！模擬顯示在此決策下，你有超過一成的機率會陷入現金流斷絕。強烈建議大幅下修決策規模。`;
         } else if (bankruptcyRate > 0) {
-            recommendation = '⚠️ 警告：存在破產風險。雖然最終資產可能成長，但在過程中你會經歷數個月甚至數年的流動性負值，現實中可能導致毀約或法拍。建議增加緊急預備金。';
+            recommendation = `⚠️ 警告：存在破產風險 (${(bankruptcyRate * 100).toFixed(1)}%)。雖然結果可能不錯，但過程中流動性極度吃緊。建議至少增加 NT$ ${incomeNeeded.toLocaleString()} 元的月收入，或增加緊急預備金來抵禦風險。`;
         } else if (successRate >= 0.8) {
             recommendation = '✅ 資產增長率良好且無破產紀錄。在此決策下，你的資產有高機率在模擬期間持續成長，財務相當穩健。';
         } else if (successRate >= 0.6) {
             recommendation = '🟡 中等風險。雖然沒有直接破產風險，但資產增長緩慢且有縮水機率。建議提升收入或降低非必要支出。';
         } else {
             recommendation = '🔶 風險偏高。雖然能撐過模擬期，但超過半數的情境顯示最終資產低於現狀，且現金流量吃緊。建議謹慎評估。';
+        }
+
+        if (maxEarlyLeverage > 5) {
+            recommendation += `\n\n🔎 槓桿風險：模擬前期槓桿倍率高達 ${maxEarlyLeverage.toFixed(1)}x，這意味著你的脆弱性很高，任何微小的股市回檔或收入中斷都可能導致崩盤。建議在前期增加保險或預備金。`;
+        }
+
+        if (bankruptcyRate > 0 && incomeNeeded > 0) {
+            recommendation += `\n\n💡 改善建議：若要讓此財務模型達成「收支平衡且不破產」，你每月至少需要再額外創造出 NT$ ${incomeNeeded.toLocaleString()} 元的淨現金流（包含加薪、兼職或節流）。`;
         }
 
         // Expense breakdown for pie chart
@@ -589,13 +744,7 @@ class FinancialSimulator {
             };
         }
 
-        // --- Milestone Calculations (Lean FIRE & Fat FIRE) ---
-        const annualFixed = this.getTotalFixedExpenses() * 12;
-        const annualVar = this.variableExpenses.reduce((s, e) => s + (e.amount * 12), 0);
-        const annualEssentialExp = annualFixed + annualVar;
-        // Lean FIRE: 25x annual essential expenses
-        const leanFireTarget = annualEssentialExp * 25;
-        // Fat FIRE: 40x annual essential expenses
+        // Lean FIRE: 25x annual essential expenses (already calculated as leanFireTarget)
         const fatFireTarget = annualEssentialExp * 40;
 
         const leanFireProb = results.filter(r => Math.max(...r.netWorthPath) >= leanFireTarget).length / iterations;
@@ -626,7 +775,7 @@ class FinancialSimulator {
             medianNetWorth: p50, p10, p25, p75, p90,
             medianPath, p10Path, p90Path,
             samplePaths: allPaths.slice(0, 20),
-            stressLevel, stressLabel, retirementDelay, recommendation,
+            stressLevel, stressLabel, retirementDelay, recommendation, acceleratorAdvice,
             expenseBreakdown, finalNetWorths, insuranceStats,
             detailedPaths, // P10/P50/P90 monthly breakdowns
             milestones, // FIRE targets and probabilities

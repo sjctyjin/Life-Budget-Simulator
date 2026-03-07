@@ -96,11 +96,8 @@
     }
 
     function bindNavigation() {
-        document.getElementById('btn-export-csv').addEventListener('click', () => {
-            if (state.simulationResults) {
-                exportDetailedPathToCSV(state.simulationResults.detailedPaths.median, 'median');
-            }
-        });
+        // CSV Export is handled in the bottom bindNavigation part where btnExportCsv is defined
+
 
         // Benchmark logic
         const btnBenchmark = document.getElementById('btn-set-benchmark');
@@ -410,6 +407,43 @@
 
     // ---- Decision Cards ----
     function bindDecisionCards() {
+        // Timeline Scenario Tabs
+        const scenarioTabs = document.querySelectorAll('.timeline-tab');
+        scenarioTabs.forEach(tab => {
+            tab.addEventListener('click', (e) => {
+                if (!state.simulationResults) return;
+                scenarioTabs.forEach(t => t.classList.remove('active'));
+                const clickedTab = e.target;
+                clickedTab.classList.add('active');
+                state.currentScenario = clickedTab.dataset.scenario;
+
+                // Keep the same opened years open
+                const currentOpenYears = Array.from(document.querySelectorAll('.year-header.open'))
+                    .map(header => parseInt(header.dataset.year));
+
+                renderYearTimeline(state.simulationResults.detailedPaths, state.currentScenario, currentOpenYears);
+            });
+        });
+
+        // Mobile Tooltip Handling
+        document.getElementById('year-timeline').addEventListener('click', (e) => {
+            const cell = e.target.closest('td[title]');
+            if (cell && window.innerWidth <= 768) { // Only trigger on mobile sizes
+                const titleText = cell.getAttribute('title');
+                if (titleText && titleText.trim() !== '' && !titleText.includes('無')) {
+                    document.getElementById('tooltip-modal-content').innerText = titleText;
+                    document.getElementById('tooltip-modal').style.display = 'flex';
+                }
+            }
+        });
+
+        document.getElementById('btn-close-tooltip').addEventListener('click', () => {
+            document.getElementById('tooltip-modal').style.display = 'none';
+        });
+    }
+
+    // ---- Navigation ----
+    function bindNavigation() {
         const cards = document.querySelectorAll('.decision-card');
         cards.forEach(card => {
             card.addEventListener('click', () => {
@@ -748,7 +782,21 @@
 
         setStatValue('stat-iterations', results.iterations.toLocaleString(), 'text-purple');
 
-        document.getElementById('recommendation-text').textContent = results.recommendation;
+        document.getElementById('recommendation-text').innerText = results.recommendation;
+
+        const accelBox = document.getElementById('accelerator-advice-box');
+        const accelText = document.getElementById('accelerator-text');
+
+        console.log(`[UI Update] Attempting to show Accelerator. Value: "${results.acceleratorAdvice}"`);
+
+        if (results.acceleratorAdvice && results.acceleratorAdvice.trim()) {
+            accelBox.style.setProperty('display', 'block', 'important');
+            accelText.innerText = results.acceleratorAdvice.replace('🏎️ 加速建議：', '').trim();
+            console.log(`[UI Update] Accelerator box set to block.`);
+        } else {
+            accelBox.style.display = 'none';
+            console.log(`[UI Update] Accelerator box hidden (no advice).`);
+        }
 
         const initialNW = results.initialNetWorth;
         const growth = results.medianNetWorth - initialNW;
@@ -769,8 +817,8 @@
         document.getElementById('recommendation-details').innerHTML = `
             <div class="recommendation-detail" style="border-left: 4px solid var(--accent-blue); padding-left: 10px; margin-bottom: 15px; background: rgba(0,255,255,0.05);">
                 <strong>📋 決策對比 ${benchmarkLabel}</strong><br>
-                比較基準成功率：${baselineRate}%<br>
-                目前策略成功率：${decisionRate}% (${diffText})
+                成功率 (資產增加): ${baselineRate}% → ${decisionRate}% (${diffText})<br>
+                破產風險增量: <span class="${results.bankruptcyRate > baselineResults.bankruptcyRate ? 'text-red' : 'text-green'}">${((results.bankruptcyRate - baselineResults.bankruptcyRate) * 100).toFixed(1)}%</span>
             </div>
             <div class="recommendation-detail"><span class="dot" style="background:${rate >= 0.6 ? 'var(--accent-green)' : 'var(--accent-red)'}"></span>
                 整體增長成功率 ${decisionRate}%（排除破產路徑）</div>
@@ -896,6 +944,18 @@
         chartRenderer.renderDistribution('chart-distribution', results.finalNetWorths, results.years || 40);
         chartRenderer.renderExpenseBreakdown('chart-expense', results.expenseBreakdown);
 
+        // Extract Leverage Paths
+        const getLeverageArray = (path) => {
+            if (!path || !path.monthlyDetails) return [];
+            return path.monthlyDetails.map(m => m.leverageRatio);
+        };
+        const leverageData = getLeverageArray(results.detailedPaths['median']);
+        let baselineLeverage = null;
+        if (state.baselineResults) {
+            baselineLeverage = getLeverageArray(state.baselineResults.detailedPaths['median']);
+        }
+        chartRenderer.renderLeverage('chart-leverage', leverageData, baselineLeverage);
+
         // Year timeline
         renderYearTimeline(results);
 
@@ -954,6 +1014,7 @@
                         <span class="year-stat">支出 <span class="text-red">NT$ ${fmtCur(yExpenseReal)}</span></span>
                         <span class="year-stat">流動資產 <span class="text-blue">NT$ ${fmtCur(yLiquidReal)}</span></span>
                         <span class="year-stat">淨值 <span class="${lastMonth.netWorth >= firstMonth.netWorth ? 'text-green' : 'text-red'}">NT$ ${fmtCur(yNetReal)}</span></span>
+                        <span class="year-stat">槓桿 <span class="text-purple" title="總資產/淨資產">${lastMonth.leverageRatio.toFixed(2)}x</span></span>
                     </div>
                     <div class="year-right">
                         <span class="year-expand">▸</span>
@@ -987,7 +1048,7 @@
             <thead><tr>
                 <th>月份</th><th>薪資</th><th>獎金</th><th>保單分紅</th><th>配息收入</th><th>未實現損益</th>
                 <th>固定支出</th><th>變動支出</th><th>貸款還款</th><th>決策支出</th>
-                <th>淨現金流</th><th>現金存款</th><th>股票市值</th><th>流動資產</th><th>淨資產</th>
+                <th>淨現金流</th><th>現金存款</th><th>股票市值</th><th>流動資產</th><th>淨資產</th><th>槓桿倍率</th><th>債務/資產比</th>
             </tr></thead><tbody>`;
 
         for (const m of months) {
@@ -1050,6 +1111,8 @@
                     <td title="${stockDetails}">${fmtCur(m.stockValue)}</td>
                     <td style="font-weight:600; color: var(--accent-blue);">${fmtCur(m.liquidAssets)}</td>
                     <td style="font-weight:600">${fmtCur(m.netWorth)}</td>
+                    <td class="text-purple">${m.leverageRatio.toFixed(2)}x</td>
+                    <td class="${m.debtToLiquidRatio > 100 ? 'text-red font-bold' : m.debtToLiquidRatio > 50 ? 'text-yellow' : 'text-green'}">${m.debtToLiquidRatio === 999 ? '∞' : m.debtToLiquidRatio + '%'}</td>
                 </tr>`;
 
             // Show variable expense breakdown on hover/tooltip via title
@@ -1133,7 +1196,7 @@
         const firstMonth = months[0];
         if (firstMonth) {
             html += `<div class="month-detail-sub">
-            <strong>💡 小提示：</strong>將游標移到「固定支出」、「變動支出」、「貸款還款」或「決策支出」的數字上停留，即可看到該月的詳細項目與金額。
+            <strong>💡 小提示：</strong>將游標移到數字上（手機版點擊數字），即可展開查看該項目當月的詳細明細。
             </div>`;
         }
 
@@ -1271,7 +1334,7 @@
             let csvContent = "data:text/csv;charset=utf-8,\uFEFF"; // Include BOM for Excel UTF-8
 
             // Header row
-            csvContent += "年齡,年份,月份,薪資,獎金,保單分紅,現金股利,未實現損益,固定支出,變動支出,貸款還款,決策支出,淨現金流,現金存款,股票市值,流動資產,負債餘額,總淨資產\n";
+            csvContent += "年齡,年份,月份,薪資,獎金,保單分紅,現金股利,未實現損益,固定支出,變動支出,貸款還款,決策支出,淨現金流,現金存款,股票市值,流動資產,負債餘額,總淨資產,槓桿倍率,負債資產比\n";
 
             // Data rows
             path.monthlyDetails.forEach(m => {
@@ -1293,7 +1356,9 @@
                     m.stockValue,
                     m.liquidAssets,
                     m.debtRemaining,
-                    m.netWorth
+                    m.netWorth,
+                    m.leverageRatio || 0,
+                    m.debtToLiquidRatio === 999 ? "Infinity" : (m.debtToLiquidRatio || 0) + "%"
                 ];
                 csvContent += row.join(",") + "\n";
             });

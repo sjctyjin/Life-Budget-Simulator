@@ -2,13 +2,13 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 # 設置參數
-initial_investment = 1000000  # 初始投資金額
+initial_investment = 2000000  # 初始投資金額
 monthly_contribution = 15000  # 每月定期定額
 years = 22  # 投資期間（28歲到50歲）
 annual_mean_return = 0.07  # 預期平均年回報率
 annual_std_dev = 0.15  # 回報率的標準差
 annual_inflation_rate = 0.02  # 年通膨率
-num_simulations = 1000  # 模擬次數
+num_simulations = 5000  # 模擬次數
 target_value = 10000000  # 目標投資價值
 
 # 每年定期定額總額
