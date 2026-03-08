@@ -522,48 +522,7 @@
         });
     }
 
-    // Assuming renderYearTimeline exists elsewhere and has a container.innerHTML = html; line
-    // This is where the new code should be inserted.
-    // For the purpose of this edit, I'll place it after the insurance preview function,
-    // as the instruction implies it's a separate function.
-    function renderYearTimeline(detailedPaths, currentScenario, currentOpenYears) {
-        const container = document.getElementById('timeline-results');
-        if (!container) return;
 
-        let html = ''; // Placeholder for actual timeline HTML generation
-        // ... (actual timeline HTML generation logic would go here) ...
-        container.innerHTML = html;
-
-        // Re-bind accordion toggle events
-        container.querySelectorAll('.year-header').forEach(header => {
-            header.classList.toggle('open', currentOpenYears.includes(parseInt(header.dataset.year)));
-            header.addEventListener('click', () => {
-                header.classList.toggle('open');
-                const year = parseInt(header.dataset.year);
-                if (header.classList.contains('open')) {
-                    if (!currentOpenYears.includes(year)) currentOpenYears.push(year);
-                } else {
-                    currentOpenYears = currentOpenYears.filter(y => y !== year);
-                }
-                const content = header.nextElementSibling;
-                if (header.classList.contains('open')) {
-                    content.style.maxHeight = content.scrollHeight + 'px';
-                } else {
-                    content.style.maxHeight = '0';
-                }
-            });
-        });
-
-        // Re-bind mobile tooltip click events directly to cells
-        // Modal close button listener (bind once)
-        const closeBtn = document.getElementById('btn-close-tooltip');
-        if (closeBtn && !closeBtn.dataset.bound) {
-            closeBtn.addEventListener('click', () => {
-                document.getElementById('tooltip-modal').style.display = 'none';
-            });
-            closeBtn.dataset.bound = "true";
-        }
-    }
 
     // ---- Sync all inputs ----
     function syncAllInputs() {
@@ -1056,6 +1015,25 @@
 
             container.appendChild(yearDiv);
         }
+
+        // Mobile Tooltip: Event delegation on the real #year-timeline container
+        // This runs AFTER all year cards are appended, so the container has content.
+        // Using event delegation so we don't need individual listeners on each td.
+        if (!container.dataset.mobileTooltipBound) {
+            container.addEventListener('click', (e) => {
+                if (window.innerWidth > 768) return; // Desktop uses native title hover
+
+                const cell = e.target.closest('td[title]');
+                if (!cell) return;
+
+                const titleText = cell.getAttribute('title');
+                if (titleText && titleText.trim() !== '' && !titleText.includes('無')) {
+                    document.getElementById('tooltip-modal-content').innerText = titleText;
+                    document.getElementById('tooltip-modal').style.display = 'flex';
+                }
+            });
+            container.dataset.mobileTooltipBound = 'true';
+        }
     }
 
     function renderMonthTable(months) {
@@ -1107,23 +1085,23 @@
 
             html += `<tr>
                     <td>${m.monthInYear} 月</td>
-                    <td class="text-green" title="本薪" onclick="showMobileTooltip(this)">${fmtCur(m.income.salary)}</td>
-                    <td class="${m.income.bonus > 0 ? 'text-yellow' : ''}" title="年終" onclick="showMobileTooltip(this)">${m.income.bonus > 0 ? fmtCur(m.income.bonus) : '-'}</td>
-                    <td class="${m.income.insuranceDividend > 0 ? 'text-yellow' : ''}" title="保單年度分紅" onclick="showMobileTooltip(this)">${m.income.insuranceDividend > 0 ? fmtCur(m.income.insuranceDividend) : '-'}</td>
+                    <td class="text-green" title="本薪">${fmtCur(m.income.salary)}</td>
+                    <td class="${m.income.bonus > 0 ? 'text-yellow' : ''}" title="年終">${m.income.bonus > 0 ? fmtCur(m.income.bonus) : '-'}</td>
+                    <td class="${m.income.insuranceDividend > 0 ? 'text-yellow' : ''}" title="保單年度分紅">${m.income.insuranceDividend > 0 ? fmtCur(m.income.insuranceDividend) : '-'}</td>
                     <td class="${m.income.stockDividendIncome > 0 ? 'text-green' : ''}" title="${(() => {
                     if (!m.income.dividendDetails || m.income.dividendDetails.length === 0) return '本月無配息';
                     return '【當月配息明細】\n' + m.income.dividendDetails.map(d =>
                         `[${d.symbol}] 股數: ${d.shares.toLocaleString(undefined, { maximumFractionDigits: 2 })} | 殖利率: ${(d.yield * 100).toFixed(2)}% | 配息: NT$ ${fmtCur(d.amount)}`
                     ).join('\n');
-                })()}" onclick="showMobileTooltip(this)">${m.income.stockDividendIncome > 0 ? fmtCur(m.income.stockDividendIncome) : '-'}</td>
-                    <td class="${m.income.stockReturn >= 0 ? 'text-green' : 'text-red'}" title="${stockDetails}" onclick="showMobileTooltip(this)">${m.income.stockReturn !== 0 ? fmtCur(m.income.stockReturn) : '-'}</td>
-                    <td class="text-red" title="${fixedDetails}" onclick="showMobileTooltip(this)">${fmtCur(m.expenses.totalFixed)}</td>
-                    <td class="text-red" title="${varDetails}" onclick="showMobileTooltip(this)">${fmtCur(m.expenses.totalVariable)}</td>
-                    <td class="${m.expenses.totalDebt > 0 ? 'text-red' : ''}" title="${debtDetails}" onclick="showMobileTooltip(this)">${m.expenses.totalDebt > 0 ? fmtCur(m.expenses.totalDebt) : '-'}</td>
-                    <td class="${m.expenses.decision > 0 ? 'text-red' : ''}" title="${decisionTooltip}" onclick="showMobileTooltip(this)">${m.expenses.decision > 0 ? fmtCur(m.expenses.decision) : '-'}</td>
+                })()}">${m.income.stockDividendIncome > 0 ? fmtCur(m.income.stockDividendIncome) : '-'}</td>
+                    <td class="${m.income.stockReturn >= 0 ? 'text-green' : 'text-red'}" title="${stockDetails}">${m.income.stockReturn !== 0 ? fmtCur(m.income.stockReturn) : '-'}</td>
+                    <td class="text-red" title="${fixedDetails}">${fmtCur(m.expenses.totalFixed)}</td>
+                    <td class="text-red" title="${varDetails}">${fmtCur(m.expenses.totalVariable)}</td>
+                    <td class="${m.expenses.totalDebt > 0 ? 'text-red' : ''}" title="${debtDetails}">${m.expenses.totalDebt > 0 ? fmtCur(m.expenses.totalDebt) : '-'}</td>
+                    <td class="${m.expenses.decision > 0 ? 'text-red' : ''}" title="${decisionTooltip}">${m.expenses.decision > 0 ? fmtCur(m.expenses.decision) : '-'}</td>
                     <td class="${cf >= 0 ? 'text-green' : 'text-red'}" style="font-weight:600">${cf >= 0 ? '+' : ''}${fmtCur(cf)}</td>
-                    <td class="${m.liquidations.length > 0 ? 'text-red underline' : ''}" title="${liquidationTooltip}" onclick="showMobileTooltip(this)">${fmtCur(m.cashBalance)}</td>
-                    <td title="${stockDetails}" onclick="showMobileTooltip(this)">${fmtCur(m.stockValue)}</td>
+                    <td class="${m.liquidations.length > 0 ? 'text-red underline' : ''}" title="${liquidationTooltip}">${fmtCur(m.cashBalance)}</td>
+                    <td title="${stockDetails}">${fmtCur(m.stockValue)}</td>
                     <td style="font-weight:600; color: var(--accent-blue);">${fmtCur(m.liquidAssets)}</td>
                     <td style="font-weight:600">${fmtCur(m.netWorth)}</td>
                     <td class="text-purple">${m.leverageRatio.toFixed(2)}x</td>
@@ -1388,14 +1366,3 @@
     }
 
 })();
-
-// Global function defined outside the main IIFE to handle inline onclick events
-window.showMobileTooltip = function (cell) {
-    if (window.innerWidth <= 768) {
-        const titleText = cell.getAttribute('title');
-        if (titleText && titleText.trim() !== '' && !titleText.includes('無')) {
-            document.getElementById('tooltip-modal-content').innerText = titleText;
-            document.getElementById('tooltip-modal').style.display = 'flex';
-        }
-    }
-};
