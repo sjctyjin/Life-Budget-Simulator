@@ -640,7 +640,7 @@
             variableExpenses: state.variableExpenses.filter(e => e.amount > 0),
             savings,
             debts: state.debts.filter(d => d.totalRemaining > 0),
-            stocks: state.stocks.filter(s => s.shares > 0 && s.currentPrice > 0),
+            stocks: state.stocks.filter(s => s.currentPrice > 0), // Allow 0 shares for new DCA targets
             decision,
             annualRaiseRate: raiseRate,
             scenario: scenario,
@@ -1071,9 +1071,14 @@
 
             let stockDetails = "股價未實現漲跌";
             if (m.stockList && m.stockList.length > 0) {
-                stockDetails = "【當月持股明細】\n" + m.stockList.map(st =>
-                    `[${st.symbol}] 股價: ${st.price.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} | 股數: ${st.shares.toLocaleString(undefined, { maximumFractionDigits: 2 })} | 市值: ${fmtCur(st.value)}`
-                ).join('\n');
+                const heldStocks = m.stockList.filter(st => st.shares > 0);
+                if (heldStocks.length > 0) {
+                    stockDetails = "【當月持股明細】\n" + heldStocks.map(st =>
+                        `[${st.symbol}] 股價: ${st.price.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} | 股數: ${st.shares.toLocaleString(undefined, { maximumFractionDigits: 2 })} | 市值: ${fmtCur(st.value)}`
+                    ).join('\n');
+                } else {
+                    stockDetails = "【當月無股票持倉】";
+                }
             }
 
             let liquidationTooltip = "現金存款 (含當月淨現金流)";
@@ -1319,15 +1324,26 @@
                 return;
             }
 
-            const scenario = state.currentScenario; // 'median', 'optimistic', 'pessimistic'
-            const path = state.simulationResults.detailedPaths[scenario];
-            if (!path || !path.monthlyDetails) return;
+            const scenario = state.currentScenario; // 'median', 'optimistic', 'pessimistic', 'baseline'
+            let path;
+            let scenarioName;
 
-            const scenarioName = { 'median': '中位數', 'optimistic': '樂觀', 'pessimistic': '保守' }[scenario];
-            let csvContent = "data:text/csv;charset=utf-8,\uFEFF"; // Include BOM for Excel UTF-8
+            if (scenario === 'baseline') {
+                if (!state.baselineResults) return;
+                path = state.baselineResults.detailedPaths['median'];
+                scenarioName = '比較基準';
+            } else {
+                path = state.simulationResults.detailedPaths[scenario];
+                scenarioName = { 'median': '中位數', 'optimistic': '樂觀', 'pessimistic': '保守' }[scenario];
+            }
 
+            if (!path || !path.monthlyDetails) {
+                alert('找不到該場景的明細數據。');
+                return;
+            }
+            let csvString = "\uFEFF"; // Include BOM for Excel UTF-8
             // Header row
-            csvContent += "年齡,年份,月份,薪資,獎金,保單分紅,現金股利,未實現損益,固定支出,變動支出,貸款還款,決策支出,淨現金流,現金存款,股票市值,流動資產,負債餘額,總淨資產,槓桿倍率,負債資產比\n";
+            csvString += "年齡,年份,月份,薪資,獎金,保單分紅,現金股利,未實現損益,固定支出,變動支出,貸款還款,決策支出,淨現金流,現金存款,股票市值,流動資產,負債餘額,總淨資產,槓桿倍率,負債資產比\n";
 
             // Data rows
             path.monthlyDetails.forEach(m => {
@@ -1353,15 +1369,22 @@
                     m.leverageRatio || 0,
                     m.debtToLiquidRatio === 999 ? "Infinity" : (m.debtToLiquidRatio || 0) + "%"
                 ];
-                csvContent += row.join(",") + "\n";
+                csvString += row.join(",") + "\n";
             });
 
+            const blob = new Blob([csvString], { type: 'text/csv;charset=utf-8;' });
+            const url = URL.createObjectURL(blob);
             const anchor = document.createElement('a');
-            anchor.setAttribute("href", encodeURI(csvContent));
+            anchor.setAttribute("href", url);
             anchor.setAttribute("download", `life_budget_simulation_${scenarioName}_${new Date().toISOString().slice(0, 10)}.csv`);
             document.body.appendChild(anchor);
             anchor.click();
-            anchor.remove();
+            document.body.removeChild(anchor); // Cleaner to remove using parent
+
+            // Delay revoking the URL to give the browser time to start the download
+            setTimeout(() => {
+                URL.revokeObjectURL(url);
+            }, 1000);
         });
     }
 

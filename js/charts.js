@@ -232,9 +232,14 @@ class ChartRenderer {
         // Deflate if active
         const adjustedNW = finalNetWorths.map(val => window.deflate ? window.deflate(val, years) : val);
 
-        // Create histogram bins
-        const min = Math.min(...adjustedNW);
-        const max = Math.max(...adjustedNW);
+        // Percentile-based scaling to handle extreme outliers
+        const sortedNW = [...adjustedNW].sort((a, b) => a - b);
+        const p01 = sortedNW[Math.floor(sortedNW.length * 0.01)];
+        const p99 = sortedNW[Math.floor(sortedNW.length * 0.99)];
+
+        // Define histogram range based on percentiles
+        const min = p01;
+        const max = p99;
         const binCount = 30;
         const binWidth = (max - min) / binCount || 1;
         const bins = new Array(binCount).fill(0);
@@ -250,7 +255,14 @@ class ChartRenderer {
         const barColors = [];
         for (let i = 0; i < binCount; i++) {
             const binStart = min + i * binWidth;
-            labels.push(this.formatCurrency(Math.round(binStart)));
+            const binEnd = binStart + binWidth;
+
+            // Format labels more cleanly - show only major points or ranges
+            if (i % 5 === 0 || i === binCount - 1) {
+                labels.push(this.formatCurrency(Math.round(binStart)));
+            } else {
+                labels.push('');
+            }
             barColors.push(binStart >= 0 ? this.colors.primary : this.colors.danger);
         }
 
@@ -279,7 +291,10 @@ class ChartRenderer {
                         bodyColor: '#e2e8f0',
                         callbacks: {
                             title: function (items) {
-                                return 'NT$ ' + items[0].label;
+                                const i = items[0].dataIndex;
+                                const start = min + i * binWidth;
+                                const end = start + binWidth;
+                                return `${self.formatCurrency(Math.round(start))} ~ ${self.formatCurrency(Math.round(end))}`;
                             },
                             label: function (ctx) {
                                 return ctx.raw + ' 次模擬';

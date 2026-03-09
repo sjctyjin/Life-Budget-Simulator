@@ -360,7 +360,16 @@ class FinancialSimulator {
             }
 
             // --- NET CASH FLOW (PRE-INVESTMENT) ---
-            const totalEssentialExpenses = totalFixed + varResult.total + totalDebtPayment + decisionExpense;
+            // The user considers DCA as a fixed expense. It is already in `totalFixed`.
+            // We temporarily exclude it to see how much cash we actually have to invest.
+            let intendedDCA = 0;
+            for (const e of this.fixedExpenses) {
+                if (e.isInvestment && e.targetStock) {
+                    intendedDCA += Math.round(e.amount * inflationFactor);
+                }
+            }
+
+            const totalEssentialExpenses = totalFixed - intendedDCA + varResult.total + totalDebtPayment + decisionExpense;
             const preInvestmentCashFlow = totalIncome + insuranceDividend + stockDividendIncome - totalEssentialExpenses;
 
             cashBalance += preInvestmentCashFlow;
@@ -395,8 +404,10 @@ class FinancialSimulator {
                 cashBalance += raised;
             }
 
-            const totalExpenses = totalEssentialExpenses + totalDCAAmount;
-            const cashFlow = totalIncome + insuranceDividend + stockDividendIncome - totalExpenses;
+            // totalExpenses for display includes DCA as it is part of totalFixed.
+            const totalExpensesForUI = totalFixed + varResult.total + totalDebtPayment + decisionExpense;
+            // cashFlow is the exact change in cash buffer for the month (Income - Essential - Actually Invested DCA)
+            const cashFlow = totalIncome + insuranceDividend + stockDividendIncome - totalEssentialExpenses - totalDCAAmount;
 
             // Net worth is cash + stocks (updated prices) + propertyValue - debt
             const currentStockValue = getStockValue();
@@ -457,7 +468,7 @@ class FinancialSimulator {
                         totalFixed: Math.round(totalFixed),
                         totalVariable: Math.round(varResult.total),
                         totalDebt: Math.round(totalDebtPayment),
-                        total: Math.round(totalExpenses),
+                        total: Math.round(totalExpensesForUI),
                     },
                     netCashFlow: Math.round(cashFlow), // uses the calculated realized cash flow
 
