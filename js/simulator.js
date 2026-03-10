@@ -21,6 +21,7 @@ class FinancialSimulator {
         this.insuranceSurrenderYear = config.insuranceSurrenderYear || null; // dynamic surrender year
         this.perpetualDividend = config.perpetualDividend || false; // whether insurance dividend continues indefinitely
         this.endAge = config.endAge || 85;
+        this.fireAge = config.fireAge || 35;
         this.fireAgeOverride = config.fireAgeOverride || null;
         this.enableSWR = config.enableSWR !== false; // Default to true
 
@@ -642,11 +643,8 @@ class FinancialSimulator {
         const annualEssentialExp = (this.getTotalFixedExpenses() + this.variableExpenses.reduce((s, e) => s + e.amount, 0)) * 12;
         const leanFireTarget = annualEssentialExp * 25;
         const currentAge = this.age;
-        // If user is already near/past 35, suggest a 5-year goal
-        let targetAge = 35;
-        if (currentAge >= 33) {
-            targetAge = currentAge + 5;
-        }
+        // Use the user-defined target age for FIRE
+        let targetAge = this.fireAge;
         let acceleratorAdvice = "";
 
         console.log(`[FIRE Accelerator] Target: ${leanFireTarget}, Current Age: ${currentAge}, Target Age: ${targetAge}`);

@@ -645,6 +645,7 @@
             annualRaiseRate: raiseRate,
             scenario: scenario,
             insuranceSurrenderYear: window._surrenderYearOverride || null,
+            fireAge: parseInt(document.getElementById('fire-age').value) || 35,
             fireAgeOverride: window._fireAgeOverride || null,
             enableSWR: document.getElementById('toggle-swr') ? document.getElementById('toggle-swr').checked : true
         };
@@ -1254,6 +1255,7 @@
                 bonusMonths: document.getElementById('bonus-months').value,
                 age: document.getElementById('age').value,
                 retireAge: document.getElementById('retire-age').value,
+                fireAge: document.getElementById('fire-age')?.value || '35',
                 raiseRate: document.getElementById('raise-rate').value,
                 savings: document.getElementById('savings').value,
                 state: {
@@ -1288,6 +1290,7 @@
                     if (loadedConfig.bonusMonths) document.getElementById('bonus-months').value = loadedConfig.bonusMonths;
                     if (loadedConfig.age) document.getElementById('age').value = loadedConfig.age;
                     if (loadedConfig.retireAge) document.getElementById('retire-age').value = loadedConfig.retireAge;
+                    if (loadedConfig.fireAge && document.getElementById('fire-age')) document.getElementById('fire-age').value = loadedConfig.fireAge;
                     if (loadedConfig.raiseRate) document.getElementById('raise-rate').value = loadedConfig.raiseRate;
                     if (loadedConfig.savings) document.getElementById('savings').value = loadedConfig.savings;
 
