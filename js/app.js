@@ -251,8 +251,10 @@
 
             let divDisplay = '';
             if (st.dividendYield > 0) {
-                const monthsStr = (st.payoutSchedule || []).map(p => p.month).join(', ');
-                divDisplay = `<span class="stock-vol" style="color:var(--accent-purple)">預估殖利率 ${(st.dividendYield * 100).toFixed(2)}% (配息月: ${monthsStr})</span>`;
+                const schedule = st.payoutSchedule || [];
+                const monthsStr = schedule.map(p => p.month).join(', ');
+                const perShareStr = schedule.map(p => `${p.month}月: ${p.amountPerShare != null ? p.amountPerShare : '?'} 元`).join(' / ');
+                divDisplay = `<span class="stock-vol" style="color:var(--accent-purple)">預估殖利率 ${(st.dividendYield * 100).toFixed(2)}% | 每股配息: ${perShareStr} (配息月: ${monthsStr})</span>`;
             }
 
             div.innerHTML = `
@@ -300,6 +302,16 @@
             });
             c.appendChild(div);
         });
+
+        // Render batch fetch button
+        const batchBtnContainer = document.getElementById('stock-batch-actions');
+        if (batchBtnContainer) {
+            batchBtnContainer.innerHTML = state.stocks.length > 0
+                ? `<button class="btn btn-sm btn-secondary" id="btn-fetch-all" style="white-space:nowrap;">🔄 一鍵更新所有股票報價</button>`
+                : '';
+            const btnFetchAll = document.getElementById('btn-fetch-all');
+            if (btnFetchAll) btnFetchAll.addEventListener('click', fetchAllStockPrices);
+        }
     }
 
     async function fetchStockPrice(index) {
@@ -338,6 +350,51 @@
             alert('無法連線到伺服器，請確認 server.js 正在運行');
         } finally {
             if (btn) { btn.textContent = '🔍 查價'; btn.disabled = false; }
+        }
+    }
+
+    async function fetchAllStockPrices() {
+        const btn = document.getElementById('btn-fetch-all');
+        if (btn) { btn.textContent = '⏳ 更新中...'; btn.disabled = true; }
+
+        const errors = [];
+        for (let i = 0; i < state.stocks.length; i++) {
+            const st = state.stocks[i];
+            if (!st.symbol) continue;
+            try {
+                const resp = await fetch(`/api/stock/${encodeURIComponent(st.symbol)}`);
+                const data = await resp.json();
+                if (data.error) {
+                    errors.push(`${st.symbol}: ${data.error}`);
+                    continue;
+                }
+                state.stocks[i] = {
+                    ...st,
+                    currentPrice: data.currentPrice,
+                    currency: data.currency,
+                    exchangeName: data.exchangeName,
+                    volatility: data.volatility,
+                    shortName: data.shortName,
+                    changePct: data.changePct,
+                    cagr: data.cagr,
+                    dataYears: data.dataYears,
+                    expectedReturn: data.cagr,
+                    dividendYield: data.dividendYield,
+                    payoutSchedule: data.payoutSchedule,
+                    exchangeRate: data.currency === 'TWD' ? 1 : 32,
+                };
+            } catch (err) {
+                errors.push(`${st.symbol}: 連線失敗`);
+            }
+        }
+
+        renderStockList();
+
+        if (errors.length > 0) {
+            alert('部分股票查價失敗：\n' + errors.join('\n'));
+        } else {
+            const btnNew = document.getElementById('btn-fetch-all');
+            if (btnNew) { btnNew.textContent = '✅ 已全部更新'; setTimeout(() => { btnNew.textContent = '🔄 一鍵更新所有股票報價'; }, 2000); }
         }
     }
 
@@ -1097,7 +1154,7 @@
                     <td class="${m.income.stockDividendIncome > 0 ? 'text-green' : ''}" title="${(() => {
                     if (!m.income.dividendDetails || m.income.dividendDetails.length === 0) return '本月無配息';
                     return '【當月配息明細】\n' + m.income.dividendDetails.map(d =>
-                        `[${d.symbol}] 股數: ${d.shares.toLocaleString(undefined, { maximumFractionDigits: 2 })} | 殖利率: ${(d.yield * 100).toFixed(2)}% | 配息: NT$ ${fmtCur(d.amount)}`
+                        `[${d.symbol}] 股數: ${d.shares.toLocaleString(undefined, { maximumFractionDigits: 2 })} | 每股配息: ${d.amountPerShare != null ? d.amountPerShare : '?'} 元 | 殖利率: ${(d.yield * 100).toFixed(2)}% | 配息: NT$ ${fmtCur(d.amount)}`
                     ).join('\n');
                 })()}">${m.income.stockDividendIncome > 0 ? fmtCur(m.income.stockDividendIncome) : '-'}</td>
                     <td class="${m.income.stockReturn >= 0 ? 'text-green' : 'text-red'}" title="${stockDetails}">${m.income.stockReturn !== 0 ? fmtCur(m.income.stockReturn) : '-'}</td>
@@ -1143,8 +1200,9 @@
 
             if (m.income.dividendDetails) {
                 for (const d of m.income.dividendDetails) {
-                    if (!yearlySums.dividendDetails[d.symbol]) yearlySums.dividendDetails[d.symbol] = { shares: d.shares, amount: 0 };
+                    if (!yearlySums.dividendDetails[d.symbol]) yearlySums.dividendDetails[d.symbol] = { shares: d.shares, amount: 0, totalAmountPerShare: 0 };
                     yearlySums.dividendDetails[d.symbol].amount += d.amount;
+                    yearlySums.dividendDetails[d.symbol].totalAmountPerShare += (d.amountPerShare || 0);
                 }
             }
             if (m.income.stockReturnItems) {
@@ -1162,7 +1220,7 @@
         let sumDivTooltip = "本年度無配息";
         if (Object.keys(yearlySums.dividendDetails).length > 0) {
             sumDivTooltip = "【年度配息加總明細】\n" + Object.entries(yearlySums.dividendDetails)
-                .map(([sym, data]) => `[${sym}] 股數: ${data.shares.toLocaleString(undefined, { maximumFractionDigits: 2 })} | 總配息: NT$ ${fmtCur(data.amount)}`)
+                .map(([sym, data]) => `[${sym}] 股數: ${data.shares.toLocaleString(undefined, { maximumFractionDigits: 2 })} | 年度每股配息合計: ${data.totalAmountPerShare.toFixed(4)} 元 | 總配息: NT$ ${fmtCur(data.amount)}`)
                 .join('\n');
         }
 

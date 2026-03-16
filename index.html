@@ -26,6 +26,11 @@
             <button id="btn-start" class="btn btn-primary">
                 開始模擬 →
             </button>
+            <div style="margin-top: 16px;">
+                <a href="ghost.html" style="color: var(--text-dim); font-size: 0.9rem; text-decoration: none; transition: color 0.3s;">
+                    👻 幽靈模式：歷史回測分析 →
+                </a>
+            </div>
         </section>
 
         <!-- ========== WIZARD ========== -->
@@ -165,7 +170,10 @@
                     </div>
 
                     <div class="section-divider">
-                        <h3 class="section-subtitle">📈 股票持倉</h3>
+                        <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px;">
+                            <h3 class="section-subtitle" style="margin-bottom: 0;">📈 股票持倉</h3>
+                            <div id="stock-batch-actions"></div>
+                        </div>
                         <p class="form-hint">輸入股票代號和股數，系統將自動抓取即時報價。台股加 .TW（例如 2330.TW）</p>
                     </div>
                     <div class="expense-list" id="stock-list"></div>

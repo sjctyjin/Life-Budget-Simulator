@@ -325,6 +325,7 @@ class FinancialSimulator {
                                 shares: st.shares,
                                 priceNTD: st.priceNTD,
                                 yield: payout.yield,
+                                amountPerShare: payout.amountPerShare || 0,
                                 amount: dividendCash,
                             });
                         }

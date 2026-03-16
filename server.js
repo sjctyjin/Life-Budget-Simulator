@@ -58,6 +58,117 @@ app.get('/api/stock/:symbol', async (req, res) => {
     }
 });
 
+// Ghost Mode: Historical backtest data endpoint
+app.get('/api/stock/:symbol/backtest', async (req, res) => {
+    let symbol = req.params.symbol.toUpperCase().trim();
+    const years = parseInt(req.query.years) || 12;
+
+    // Auto-detect Taiwan stock codes
+    const isTaiwanCode = /^\d{4,6}[A-Z]*$/.test(symbol);
+    if (isTaiwanCode) symbol = symbol + '.TW';
+
+    try {
+        const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?interval=1mo&range=${years}y&events=div,splits`;
+        const data = await fetchJSON(url);
+
+        if (!data || !data.chart || !data.chart.result || data.chart.result.length === 0) {
+            // Fallback: try .TWO for OTC
+            if (isTaiwanCode) {
+                const altSymbol = symbol.replace('.TW', '.TWO');
+                const altUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(altSymbol)}?interval=1mo&range=${years}y&events=div,splits`;
+                const altData = await fetchJSON(altUrl);
+                if (altData && altData.chart && altData.chart.result && altData.chart.result.length > 0) {
+                    symbol = altSymbol;
+                    return processBacktestData(res, altData, symbol);
+                }
+            }
+            return res.status(404).json({ error: `找不到 ${symbol} 的歷史資料` });
+        }
+
+        processBacktestData(res, data, symbol);
+    } catch (err) {
+        console.error(`Error fetching backtest data for ${symbol}:`, err.message);
+        res.status(500).json({ error: '無法取得歷史資料', details: err.message });
+    }
+});
+
+function processBacktestData(res, data, symbol) {
+    const result = data.chart.result[0];
+    const meta = result.meta;
+    const timestamps = result.timestamp || [];
+    const quotes = result.indicators?.quote?.[0] || {};
+    const closes = quotes.close || [];
+    const events = result.events || {};
+    
+    // Process splits first
+    const splitData = events.splits || {};
+    const splits = Object.values(splitData).map(s => {
+        const d = new Date(s.date * 1000);
+        return {
+            date: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`,
+            yearMonth: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`,
+            ratio: s.numerator / s.denominator,
+            numerator: s.numerator,
+            denominator: s.denominator,
+            timestamp: s.date
+        };
+    }).sort((a, b) => a.timestamp - b.timestamp);
+
+    const dividends = events.dividends || {};
+
+    const currency = meta.currency || 'TWD';
+    const shortName = meta.shortName || symbol;
+    const currentPrice = meta.regularMarketPrice || 0;
+
+    // Build monthly price array
+    const months = [];
+    for (let i = 0; i < timestamps.length; i++) {
+        if (closes[i] == null) continue;
+        const d = new Date(timestamps[i] * 1000);
+        months.push({
+            date: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`,
+            year: d.getFullYear(),
+            month: d.getMonth() + 1,
+            close: Math.round(closes[i] * 100) / 100,
+            timestamp: timestamps[i],
+        });
+    }
+
+    // Build dividend array and unadjust the amounts 
+    // Yahoo returns split-adjusted dividends, so we multiply by all future splits to get the actual historical cash payout
+    const divList = Object.values(dividends).map(div => {
+        const d = new Date(div.date * 1000);
+        let multiplier = 1;
+        for (const s of splits) {
+            if (s.timestamp > div.date) {
+                multiplier *= s.ratio;
+            }
+        }
+        const unadjustedAmount = div.amount * multiplier;
+
+        return {
+            date: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`,
+            yearMonth: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`,
+            year: d.getFullYear(),
+            month: d.getMonth() + 1,
+            amount: Math.round(unadjustedAmount * 10000) / 10000, // Now represents unadjusted (real) cash div
+            adjustedAmount: div.amount, // Original from Yahoo
+            timestamp: div.date,
+        };
+    }).sort((a, b) => a.timestamp - b.timestamp);
+
+    res.json({
+        symbol,
+        shortName,
+        currency,
+        currentPrice,
+        months,
+        dividends: divList,
+        splits: splits,
+        dataYears: months.length > 0 ? Math.round((months.length / 12) * 10) / 10 : 0,
+    });
+}
+
 async function fetchStockData(symbol) {
     // 1. Fetch 1 year of daily data to get accurate current price and trailing dividends
     const url1y = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?interval=1d&range=1y&events=div`;
@@ -121,6 +232,7 @@ async function fetchStockData(symbol) {
 
     // Process Dividends over the trailing 1 year
     const dividendMonths = {};
+    const dividendAmounts = {}; // per-share amount by month
     let ttmDividend = 0;
     if (dividends && currentPrice > 0) {
         Object.values(dividends).forEach(div => {
@@ -132,14 +244,20 @@ async function fetchStockData(symbol) {
             const yieldShare = div.amount / currentPrice;
             if (dividendMonths[month]) {
                 dividendMonths[month] += yieldShare;
+                dividendAmounts[month] += div.amount;
             } else {
                 dividendMonths[month] = yieldShare;
+                dividendAmounts[month] = div.amount;
             }
         });
     }
 
     const payoutSchedule = Object.keys(dividendMonths)
-        .map(m => ({ month: parseInt(m), yield: Math.round(dividendMonths[m] * 10000) / 10000 }))
+        .map(m => ({
+            month: parseInt(m),
+            yield: Math.round(dividendMonths[m] * 10000) / 10000,
+            amountPerShare: Math.round(dividendAmounts[m] * 10000) / 10000
+        }))
         .sort((a, b) => a.month - b.month);
 
     const dividendYield = currentPrice > 0 ? (ttmDividend / currentPrice) : 0;
