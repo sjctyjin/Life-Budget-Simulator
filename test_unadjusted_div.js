@@ -25,7 +25,7 @@ function fetchJSON(url) {
             let multiplier = 1;
             for (const s of splits) {
                 if (s.date > d.date) {
-                    multiplier *= (s.numerator / s.denominator);
+                    multiplier *= (s.denominator / s.numerator);
                 }
             }
             const unadjusted = d.amount * multiplier;

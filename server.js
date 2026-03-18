@@ -102,7 +102,7 @@ function processBacktestData(res, data, symbol) {
     
     // Process splits first
     const splitData = events.splits || {};
-    const splits = Object.values(splitData).map(s => {
+    let splits = Object.values(splitData).map(s => {
         const d = new Date(s.date * 1000);
         return {
             date: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`,
@@ -112,7 +112,39 @@ function processBacktestData(res, data, symbol) {
             denominator: s.denominator,
             timestamp: s.date
         };
-    }).sort((a, b) => a.timestamp - b.timestamp);
+    });
+
+    // --- Inject Known Missing Splits (Yahoo Finance Bug for Taiwan ETFs) ---
+    // Some ETFs have their historical prices adjusted by Yahoo (like 0050), 
+    // while others don't (like 0052 causing massive price drops).
+    const KNOWN_MISSING_SPLITS = {
+        '0052.TW': [
+            // 0052 split 1 to 7. Reference date 2025-11-26. NOT price adjusted by Yahoo, but IS dividend adjusted!
+            { dateStr: '2025-11-26', numerator: 7, denominator: 1, adjustedPrices: false, adjustedDividends: true }
+        ],
+        '0050.TW': [
+            // 0050 split 1 to 4. Reference date 2025-06-18. IS price adjusted, IS dividend adjusted.
+            { dateStr: '2025-06-18', numerator: 4, denominator: 1, adjustedPrices: true, adjustedDividends: true }
+        ]
+    };
+
+    if (KNOWN_MISSING_SPLITS[symbol]) {
+        for (const ms of KNOWN_MISSING_SPLITS[symbol]) {
+            const d = new Date(ms.dateStr);
+            splits.push({
+                date: ms.dateStr,
+                yearMonth: ms.dateStr.substring(0, 7),
+                ratio: ms.numerator / ms.denominator,
+                numerator: ms.numerator,
+                denominator: ms.denominator,
+                adjustedPrices: ms.adjustedPrices,
+                adjustedDividends: ms.adjustedDividends,
+                timestamp: Math.floor(d.getTime() / 1000)
+            });
+        }
+    }
+
+    splits = splits.sort((a, b) => a.timestamp - b.timestamp);
 
     const dividends = events.dividends || {};
 
@@ -121,15 +153,28 @@ function processBacktestData(res, data, symbol) {
     const currentPrice = meta.regularMarketPrice || 0;
 
     // Build monthly price array
+    // Yahoo returns split-adjusted historical prices. We must reverse this adjustment 
+    // so the backtest engine uses the REAL ticker-tape historical prices for its buy calculations.
     const months = [];
     for (let i = 0; i < timestamps.length; i++) {
         if (closes[i] == null) continue;
         const d = new Date(timestamps[i] * 1000);
+        
+        let multiplier = 1;
+        for (const s of splits) {
+            // Only apply the reverse multiplier if Yahoo actually adjusted the prices backwards.
+            if (s.timestamp > timestamps[i] && s.adjustedPrices !== false) {
+                multiplier *= s.ratio;
+            }
+        }
+        const unadjustedClose = closes[i] * multiplier;
+
         months.push({
             date: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`,
             year: d.getFullYear(),
             month: d.getMonth() + 1,
-            close: Math.round(closes[i] * 100) / 100,
+            close: Math.round(unadjustedClose * 100) / 100, // True historical price
+            adjustedClose: closes[i], // Original adjusted price from Yahoo
             timestamp: timestamps[i],
         });
     }
@@ -140,7 +185,9 @@ function processBacktestData(res, data, symbol) {
         const d = new Date(div.date * 1000);
         let multiplier = 1;
         for (const s of splits) {
-            if (s.timestamp > div.date) {
+            // Only apply the reverse multiplier if Yahoo actually adjusted the dividends backwards.
+            // Some ETFs (like 0052) had unadjusted prices but adjusted dividends.
+            if (s.timestamp > div.date && s.adjustedDividends !== false) {
                 multiplier *= s.ratio;
             }
         }

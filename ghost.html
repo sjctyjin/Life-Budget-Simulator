@@ -35,16 +35,19 @@
             <h2>⚙️ 定期定額回測設定</h2>
 
             <div class="ghost-form-row">
-                <div class="form-group">
-                    <label class="form-label" for="ghost-symbol">股票代號</label>
-                    <input type="text" class="form-input" id="ghost-symbol" placeholder="0050 或 00919" value="0050">
-                    <p class="form-hint">台股直接輸入代號即可（如 0050、00919）</p>
+                <div class="form-group" style="flex:2;">
+                    <label class="form-label">投資組合配置 (股票代號 + 每月投入金額)</label>
+                    <div id="dca-stock-list" style="display:flex; flex-direction:column; gap:8px;">
+                        <div class="ghost-stock-row" style="display:flex; gap:8px;">
+                            <input type="text" class="form-input dca-symbol" placeholder="代號 (例 0050)" value="0050" style="flex:1;">
+                            <input type="number" class="form-input dca-amount" value="5000" min="100" step="1000" style="flex:1;" title="每月金額 (NT$)">
+                            <button class="btn" style="padding:0 12px; background:rgba(239,68,68,0.1); border:1px solid rgba(239,68,68,0.3); color:#fca5a5; border-radius:8px;" onclick="if(document.querySelectorAll('#dca-stock-list .ghost-stock-row').length>1) this.parentElement.remove()">✖</button>
+                        </div>
+                    </div>
+                    <button class="btn btn-outline" onclick="addDcaRow()" style="margin-top:12px; padding:6px 16px; border-style:dashed; width:fit-content; border-radius:8px;">➕ 新增標的</button>
                 </div>
-                <div class="form-group">
-                    <label class="form-label" for="ghost-monthly">每月定期定額 (NT$)</label>
-                    <input type="number" class="form-input" id="ghost-monthly" value="5000" min="100" step="1000">
-                </div>
-                <div class="form-group">
+                
+                <div class="form-group" style="flex:1;">
                     <label class="form-label" for="ghost-years">回測年數</label>
                     <input type="number" class="form-input" id="ghost-years" value="12" min="1" max="20">
                     <p class="form-hint">最多 20 年（受限於歷史資料）</p>
@@ -118,20 +121,22 @@
             </p>
 
             <div class="ghost-form-row">
-                <div class="form-group">
-                    <label class="form-label" for="bh-symbol">股票代號</label>
-                    <input type="text" class="form-input" id="bh-symbol" placeholder="00919" value="00919">
-                    <p class="form-hint">台股直接輸入代號（如 00919、0050）</p>
+                <div class="form-group" style="flex:2;">
+                    <label class="form-label">投資組合配置 (股票代號 + 買入股數)</label>
+                    <div id="bh-stock-list" style="display:flex; flex-direction:column; gap:8px;">
+                        <div class="ghost-stock-row" style="display:flex; gap:8px;">
+                            <input type="text" class="form-input bh-symbol" placeholder="代號 (例 00919)" value="00919" style="flex:1;">
+                            <input type="number" class="form-input bh-shares" value="1000" min="1" step="1" style="flex:1;" title="買入總股數">
+                            <button class="btn" style="padding:0 12px; background:rgba(239,68,68,0.1); border:1px solid rgba(239,68,68,0.3); color:#fca5a5; border-radius:8px;" onclick="if(document.querySelectorAll('#bh-stock-list .ghost-stock-row').length>1) this.parentElement.remove()">✖</button>
+                        </div>
+                    </div>
+                    <button class="btn btn-outline" onclick="addBhRow()" style="margin-top:12px; padding:6px 16px; border-style:dashed; width:fit-content; border-radius:8px;">➕ 新增標的</button>
                 </div>
-                <div class="form-group">
-                    <label class="form-label" for="bh-date">買入年月</label>
+
+                <div class="form-group" style="flex:1;">
+                    <label class="form-label" for="bh-date">投資組合買入年月</label>
                     <input type="month" class="form-input" id="bh-date" value="2020-07">
-                    <p class="form-hint">你當初買入的年月</p>
-                </div>
-                <div class="form-group">
-                    <label class="form-label" for="bh-shares">買入股數</label>
-                    <input type="number" class="form-input" id="bh-shares" value="1000" min="1" step="1">
-                    <p class="form-hint">當時買入的總股數</p>
+                    <p class="form-hint">整批買入的起始年月</p>
                 </div>
             </div>
 
@@ -221,37 +226,49 @@
             $('btn-ghost-run').addEventListener('click', runGhostBacktest);
 
             async function runGhostBacktest() {
-                const symbol = $('ghost-symbol').value.trim();
-                const monthlyAmount = parseFloat($('ghost-monthly').value) || 5000;
+                const rows = document.querySelectorAll('#dca-stock-list .ghost-stock-row');
+                const portfolioConfig = [];
+                for (const row of rows) {
+                    const symbol = row.querySelector('.dca-symbol').value.trim();
+                    const amount = parseFloat(row.querySelector('.dca-amount').value) || 0;
+                    if (symbol && amount > 0) {
+                        portfolioConfig.push({ symbol, amount });
+                    }
+                }
                 const years = parseInt($('ghost-years').value) || 12;
                 const reinvest = $('ghost-dividend-mode').value === 'reinvest';
 
-                if (!symbol) { alert('請輸入股票代號'); return; }
+                if (portfolioConfig.length === 0) { alert('請輸入至少一檔股票代號與對應金額'); return; }
 
                 $('ghost-loading').classList.add('active');
                 $('ghost-results').classList.remove('active');
 
                 try {
-                    const resp = await fetch(`/api/stock/${encodeURIComponent(symbol)}/backtest?years=${years}`);
-                    const data = await resp.json();
+                    const fetchPromises = portfolioConfig.map(cfg => 
+                        fetch(`/api/stock/${encodeURIComponent(cfg.symbol)}/backtest?years=${years}`)
+                            .then(res => res.json())
+                            .then(data => ({ symbol: cfg.symbol, amount: cfg.amount, data }))
+                    );
 
-                    if (data.error) {
-                        alert(`查詢失敗：${data.error}`);
-                        $('ghost-loading').classList.remove('active');
-                        return;
+                    const fetchedResults = await Promise.all(fetchPromises);
+                    const engineConfigs = [];
+
+                    for (const f of fetchedResults) {
+                        if (f.data.error) throw new Error(`查詢 ${f.symbol} 失敗：${f.data.error}`);
+                        
+                        const engine = new GhostBacktest({
+                            months: f.data.months,
+                            dividends: f.data.dividends,
+                            splits: f.data.splits,
+                            monthlyAmount: f.amount,
+                            reinvestDividends: reinvest,
+                            currency: f.data.currency,
+                            currentPrice: f.data.currentPrice,
+                        });
+                        engineConfigs.push({ symbol: f.symbol, result: engine.run() });
                     }
 
-                    const engine = new GhostBacktest({
-                        months: data.months,
-                        dividends: data.dividends,
-                        splits: data.splits,
-                        monthlyAmount,
-                        reinvestDividends: reinvest,
-                        currency: data.currency,
-                        currentPrice: data.currentPrice,
-                    });
-
-                    const result = engine.run();
+                    const result = GhostBacktest.runPortfolio(engineConfigs, false);
                     if (result.error) {
                         alert(result.error);
                         $('ghost-loading').classList.remove('active');
@@ -294,7 +311,7 @@
                 }
             }
 
-            function displayDCAResults(result, stockData, insurance) {
+            function displayDCAResults(result, insurance) {
                 $('ghost-results').classList.add('active');
 
                 const roiColor = result.roi >= 0 ? 'var(--accent-green)' : 'var(--accent-red)';
@@ -309,12 +326,12 @@
                     <div class="ghost-stat-card">
                         <div class="stat-icon">📊</div>
                         <div class="stat-value" style="color:var(--accent-cyan)">NT$ ${fmtCur(result.finalMarketValue)}</div>
-                        <div class="stat-label">最終市值 (${result.totalShares} 股 × ${result.finalPrice})</div>
+                        <div class="stat-label">終局組合市值</div>
                     </div>
                     <div class="ghost-stat-card">
                         <div class="stat-icon">🎁</div>
-                        <div class="stat-value" style="color:var(--accent-purple)">NT$ ${fmtCur(result.totalDividendsReinvested + result.totalDividendsCash)}</div>
-                        <div class="stat-label">累計現金配息</div>
+                        <div class="stat-value" style="color:var(--accent-purple)">NT$ ${fmtCur(result.totalDividendsCash)}</div>
+                        <div class="stat-label">組合累計配息現金</div>
                     </div>
                     <div class="ghost-stat-card">
                         <div class="stat-icon">📈</div>
@@ -329,26 +346,26 @@
                     <div class="ghost-stat-card">
                         <div class="stat-icon">📅</div>
                         <div class="stat-value" style="color:var(--text-primary)">${result.years} 年</div>
-                        <div class="stat-label">回測期間 (${result.months} 個月)</div>
+                        <div class="stat-label">回測期間</div>
                     </div>
                 `;
 
                 if (insurance) {
                     $('ghost-comparison').style.display = 'block';
                     const stockTotal = result.totalReturn;
-                    const winner = stockTotal > insurance.total ? '👻 股票勝出' : '🛡️ 保單勝出';
+                    const winner = stockTotal > insurance.total ? '👻 組合勝出' : '🛡️ 保單勝出';
 
                     $('ghost-compare-table').innerHTML = `
                         <thead><tr>
                             <th>指標</th>
                             <th class="col-insurance">🛡️ ${insurance.name}</th>
-                            <th class="col-stock">👻 定期定額 ${stockData.shortName}</th>
+                            <th class="col-stock">👻 定期定額 投資組合</th>
                         </tr></thead>
                         <tbody>
                             <tr><td>總投入</td><td class="col-insurance">NT$ ${fmtCur(insurance.invested)}</td><td class="col-stock">NT$ ${fmtCur(result.totalInvested)}</td></tr>
                             <tr><td>最終價值</td><td class="col-insurance">NT$ ${fmtCur(insurance.total)}</td><td class="col-stock">NT$ ${fmtCur(stockTotal)}</td></tr>
                             <tr><td>其中：解約/市值</td><td class="col-insurance">NT$ ${fmtCur(insurance.surrender)}</td><td class="col-stock">NT$ ${fmtCur(result.finalMarketValue)}</td></tr>
-                            <tr><td>其中：配息/分紅</td><td class="col-insurance">NT$ ${fmtCur(insurance.dividend)}</td><td class="col-stock">NT$ ${fmtCur(result.totalDividendsCash + result.totalDividendsReinvested)}</td></tr>
+                            <tr><td>其中：配息/分紅</td><td class="col-insurance">NT$ ${fmtCur(insurance.dividend)}</td><td class="col-stock">NT$ ${fmtCur(result.totalDividendsCash)}</td></tr>
                             <tr class="highlight-row"><td>ROI (總報酬率)</td><td class="col-insurance">${(insurance.roi * 100).toFixed(1)}%</td><td class="col-stock">${(result.roi * 100).toFixed(1)}%</td></tr>
                             <tr class="highlight-row"><td>IRR (年化報酬率)</td><td class="col-insurance">${(insurance.irr * 100).toFixed(2)}%</td><td class="col-stock">${(result.irr * 100).toFixed(2)}%</td></tr>
                             <tr><td>投資期間</td><td class="col-insurance">${insurance.years} 年</td><td class="col-stock">${result.years} 年</td></tr>
@@ -360,7 +377,8 @@
                 }
 
                 renderGrowthChart(result.monthlyDetails);
-                renderYearlyTable(result.yearlyDetails);
+                renderPortfolioBreakdown(result.breakdown);
+                renderYearlyTable(result.yearlyDetails, false);
 
                 setTimeout(() => {
                     $('ghost-results').scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -404,16 +422,46 @@
                 $('ghost-yearly-detail').innerHTML = html;
             }
 
+            // Helpers for dynamic rows
+            window.addDcaRow = function() {
+                const list = document.getElementById('dca-stock-list');
+                const row = document.createElement('div');
+                row.className = 'ghost-stock-row';
+                row.style.cssText = 'display:flex; gap:8px;';
+                row.innerHTML = `<input type="text" class="form-input dca-symbol" placeholder="代號 (例 0050)" style="flex:1;">
+                                 <input type="number" class="form-input dca-amount" value="5000" min="100" step="1000" style="flex:1;" title="每月金額 (NT$)">
+                                 <button class="btn" style="padding:0 12px; background:rgba(239,68,68,0.1); border:1px solid rgba(239,68,68,0.3); color:#fca5a5; border-radius:8px;" onclick="if(document.querySelectorAll('#dca-stock-list .ghost-stock-row').length>1) this.parentElement.remove()">✖</button>`;
+                list.appendChild(row);
+            };
+
+            window.addBhRow = function() {
+                const list = document.getElementById('bh-stock-list');
+                const row = document.createElement('div');
+                row.className = 'ghost-stock-row';
+                row.style.cssText = 'display:flex; gap:8px;';
+                row.innerHTML = `<input type="text" class="form-input bh-symbol" placeholder="代號 (例 00919)" style="flex:1;">
+                                 <input type="number" class="form-input bh-shares" value="1000" min="1" step="1" style="flex:1;" title="買入總股數">
+                                 <button class="btn" style="padding:0 12px; background:rgba(239,68,68,0.1); border:1px solid rgba(239,68,68,0.3); color:#fca5a5; border-radius:8px;" onclick="if(document.querySelectorAll('#bh-stock-list .ghost-stock-row').length>1) this.parentElement.remove()">✖</button>`;
+                list.appendChild(row);
+            };
+
             // ==================== BUY & HOLD ====================
             $('btn-bh-run').addEventListener('click', runBuyHold);
 
             async function runBuyHold() {
-                const symbol = $('bh-symbol').value.trim();
+                const rows = document.querySelectorAll('#bh-stock-list .ghost-stock-row');
+                const portfolioConfig = [];
+                for (const row of rows) {
+                    const symbol = row.querySelector('.bh-symbol').value.trim();
+                    const shares = parseFloat(row.querySelector('.bh-shares').value) || 0;
+                    if (symbol && shares > 0) {
+                        portfolioConfig.push({ symbol, shares });
+                    }
+                }
                 const buyDate = $('bh-date').value; // 'YYYY-MM'
-                const shares = parseFloat($('bh-shares').value) || 1000;
 
-                if (!symbol) { alert('請輸入股票代號'); return; }
-                if (!buyDate) { alert('請選擇買入年月'); return; }
+                if (portfolioConfig.length === 0) { alert('請輸入至少一檔股票代號與對應股數'); return; }
+                if (!buyDate) { alert('請選擇單筆買入年月'); return; }
 
                 $('ghost-loading').classList.add('active');
                 $('bh-results').classList.remove('active');
@@ -423,32 +471,39 @@
                 const yearsNeeded = new Date().getFullYear() - buyYear + 1;
 
                 try {
-                    const resp = await fetch(`/api/stock/${encodeURIComponent(symbol)}/backtest?years=${Math.max(yearsNeeded, 5)}`);
-                    const data = await resp.json();
+                    const fetchPromises = portfolioConfig.map(cfg => 
+                        fetch(`/api/stock/${encodeURIComponent(cfg.symbol)}/backtest?years=${Math.max(yearsNeeded, 5)}`)
+                            .then(res => res.json())
+                            .then(data => ({ symbol: cfg.symbol, shares: cfg.shares, data }))
+                    );
 
-                    if (data.error) {
-                        alert(`查詢失敗：${data.error}`);
+                    const fetchedResults = await Promise.all(fetchPromises);
+                    const engineConfigs = [];
+
+                    for (const f of fetchedResults) {
+                        if (f.data.error) throw new Error(`查詢 ${f.symbol} 失敗：${f.data.error}`);
+                        
+                        const result = GhostBacktest.runBuyAndHold({
+                            months: f.data.months,
+                            dividends: f.data.dividends,
+                            splits: f.data.splits,
+                            buyDate,
+                            shares: f.shares,
+                            currentPrice: f.data.currentPrice,
+                            currency: f.data.currency,
+                        });
+                        if (result.error) throw new Error(`回測 ${f.symbol} 失敗：${result.error}`);
+                        engineConfigs.push({ symbol: f.symbol, result });
+                    }
+
+                    const finalResult = GhostBacktest.runPortfolio(engineConfigs, true);
+                    if (finalResult.error) {
+                        alert(finalResult.error);
                         $('ghost-loading').classList.remove('active');
                         return;
                     }
 
-                    const result = GhostBacktest.runBuyAndHold({
-                        months: data.months,
-                        dividends: data.dividends,
-                        splits: data.splits,
-                        buyDate,
-                        shares,
-                        currentPrice: data.currentPrice,
-                        currency: data.currency,
-                    });
-
-                    if (result.error) {
-                        alert(result.error);
-                        $('ghost-loading').classList.remove('active');
-                        return;
-                    }
-
-                    displayBuyHoldResults(result, data);
+                    displayBuyHoldResults(finalResult);
                 } catch (err) {
                     alert('無法連線到伺服器，請確認 server.js 正在運行');
                     console.error(err);
@@ -468,22 +523,17 @@
                     <div class="ghost-stat-card">
                         <div class="stat-icon">🛒</div>
                         <div class="stat-value" style="color:var(--text-primary)">NT$ ${fmtCur(result.totalInvested)}</div>
-                        <div class="stat-label">買入成本 (${result.shares} 股 × ${result.buyPrice})</div>
+                        <div class="stat-label">買入總成本</div>
                     </div>
                     <div class="ghost-stat-card">
                         <div class="stat-icon">📊</div>
                         <div class="stat-value" style="color:var(--accent-cyan)">NT$ ${fmtCur(result.finalMarketValue)}</div>
-                        <div class="stat-label">目前市值 (${result.currentShares} 股 × ${result.finalPrice})</div>
-                    </div>
-                    <div class="ghost-stat-card">
-                        <div class="stat-icon">📉</div>
-                        <div class="stat-value" style="color:${priceColor}">${result.priceGain >= 0 ? '+' : ''}${result.priceGain} (${(result.priceGainPct * 100).toFixed(1)}%)</div>
-                        <div class="stat-label">股價變化 (${result.buyPrice} → ${result.finalPrice})</div>
+                        <div class="stat-label">現值總市值</div>
                     </div>
                     <div class="ghost-stat-card">
                         <div class="stat-icon">🎁</div>
                         <div class="stat-value" style="color:var(--accent-purple)">NT$ ${fmtCur(result.totalDividendsCash)}</div>
-                        <div class="stat-label">累計配息收入 (共 ${result.dividendHistory.length} 次)</div>
+                        <div class="stat-label">累計總配息收入</div>
                     </div>
                     <div class="ghost-stat-card">
                         <div class="stat-icon">💎</div>
@@ -508,12 +558,43 @@
                 `;
 
                 renderBHChart(result.monthlyDetails, result.totalInvested);
+                renderPortfolioBreakdown(result.breakdown, true);
                 renderBHDividendTable(result);
 
                 setTimeout(() => {
                     $('bh-results').scrollIntoView({ behavior: 'smooth', block: 'start' });
                 }, 100);
             }
+
+            window.renderPortfolioBreakdown = function(breakdown, isBuyHold = false) {
+                const targetId = isBuyHold ? 'bh-dividend-table' : 'ghost-yearly-detail';
+                // Insert a breakdown table before the yearly details/dividend table
+                const parent = $(targetId).parentElement;
+                let bdDiv = document.getElementById('portfolio-breakdown-' + (isBuyHold ? 'bh' : 'dca'));
+                if (!bdDiv) {
+                    bdDiv = document.createElement('div');
+                    bdDiv.id = 'portfolio-breakdown-' + (isBuyHold ? 'bh' : 'dca');
+                    bdDiv.style.cssText = 'overflow-x:auto; margin-bottom: 24px;';
+                    parent.insertBefore(bdDiv, $(targetId));
+                }
+                
+                let html = `<h3 style="margin-bottom:12px; font-size:1.1rem; color:var(--text-primary);"><span style="font-size:1.2rem; vertical-align:middle;">💼</span> 投資組合配置與獨立績效表</h3>
+                            <table class="ghost-table">
+                            <thead><tr><th>標的</th><th>佔比</th><th>投入資金</th><th>現金配息</th><th>現值總計</th><th>總報酬ROI</th><th>年化IRR</th></tr></thead><tbody>`;
+                for (const b of breakdown) {
+                    html += `<tr>
+                                <td style="font-weight:bold;color:var(--accent-purple);">${b.symbol}</td>
+                                <td class="text-cyan">${(b.weightPct * 100).toFixed(1)}%</td>
+                                <td>NT$ ${fmtCur(b.invested)}</td>
+                                <td class="text-purple">NT$ ${fmtCur(b.dividends)}</td>
+                                <td class="text-green">NT$ ${fmtCur(b.marketValue)}</td>
+                                <td class="${b.roi >= 0 ? 'text-green' : 'text-red'}">${(b.roi * 100).toFixed(1)}%</td>
+                                <td class="${b.irr >= 0 ? 'text-green' : 'text-red'}">${(b.irr * 100).toFixed(2)}%</td>
+                             </tr>`;
+                }
+                html += '</tbody></table>';
+                bdDiv.innerHTML = html;
+            };
 
             function renderBHChart(monthlyDetails, totalInvested) {
                 const ctx = $('bh-chart').getContext('2d');
@@ -542,23 +623,28 @@
             }
 
             function renderBHDividendTable(result) {
-                let html = `<thead><tr><th>年份</th><th>配息次數</th><th>年度配息合計</th><th>配息明細</th></tr></thead><tbody>`;
+                let html = `<thead><tr><th>年份</th><th>配息總次數</th><th>年度總配息合計</th><th>配息明細</th></tr></thead><tbody>`;
 
-                if (result.yearlyDividends.length === 0) {
+                if (!result.yearlyDividends || result.yearlyDividends.length === 0) {
                     html += '<tr><td colspan="4" style="text-align:center;color:var(--text-dim);">持有期間無配息紀錄</td></tr>';
                 } else {
                     let grandTotal = 0;
                     for (const y of result.yearlyDividends) {
                         grandTotal += y.total;
-                        const details = y.events.map(e => `${e.date} (${e.perShare}元/股 → NT$${fmtCur(e.total)})`).join('<br>');
+                        // For portfolio aggregated events, we have a symbol field
+                        const details = (y.events || []).map(e => {
+                            const symPrefix = e.symbol ? `<span style="color:var(--accent-purple);font-weight:bold;">[${e.symbol}]</span> ` : '';
+                            return `${symPrefix}${e.date} (${e.perShare}元/股 × ${e.shares}股 → NT$${fmtCur(e.total)})`;
+                        }).join('<br>');
+                        
                         html += `<tr>
                             <td>${y.year}</td>
                             <td>${y.count} 次</td>
                             <td class="text-purple">NT$ ${fmtCur(y.total)}</td>
-                            <td style="text-align:left;font-size:0.8rem;white-space:normal;">${details}</td>
+                            <td style="text-align:left;font-size:0.8rem;white-space:normal;line-height:1.4;">${details}</td>
                         </tr>`;
                     }
-                    html += `<tr class="highlight-row"><td>合計</td><td>${result.dividendHistory.length} 次</td><td class="text-purple" style="font-weight:700;">NT$ ${fmtCur(grandTotal)}</td><td></td></tr>`;
+                    html += `<tr class="highlight-row"><td>合計</td><td>${result.dividendHistory ? result.dividendHistory.length : '-'} 次</td><td class="text-purple" style="font-weight:700;">NT$ ${fmtCur(grandTotal)}</td><td></td></tr>`;
                 }
 
                 html += '</tbody>';

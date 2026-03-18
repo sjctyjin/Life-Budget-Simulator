@@ -88,11 +88,11 @@ class GhostBacktest {
             // 3. Apply stock splits (stock dividends)
             let stockDividendShares = 0;
             if (splitMap[m.date]) {
-                let splitRatio = 1;
-                for (const r of splitMap[m.date]) {
-                    splitRatio *= r;
+                let actualMultiplier = 1;
+                for (const sObj of splitMap[m.date]) {
+                    actualMultiplier *= sObj.ratio;
                 }
-                const newShares = totalShares * splitRatio;
+                const newShares = totalShares * actualMultiplier;
                 stockDividendShares = newShares - totalShares;
                 totalShares = newShares;
             }
@@ -182,6 +182,7 @@ class GhostBacktest {
             years: Math.round((this.months.length / 12) * 10) / 10,
             monthlyDetails,
             yearlyDetails: yearlyArray,
+            cashflows,
         };
     }
 
@@ -277,7 +278,7 @@ class GhostBacktest {
         const splitMap = {};
         for (const s of splits) {
             if (!splitMap[s.yearMonth]) splitMap[s.yearMonth] = [];
-            splitMap[s.yearMonth].push(s.ratio);
+            splitMap[s.yearMonth].push({ ratio: s.ratio, adjustedPrices: s.adjustedPrices });
         }
 
         for (let i = buyIdx; i < months.length; i++) {
@@ -287,11 +288,11 @@ class GhostBacktest {
             // Apply stock splits (stock dividends)
             let stockDividendShares = 0;
             if (splitMap[m.date]) {
-                let splitRatio = 1;
-                for (const r of splitMap[m.date]) {
-                    splitRatio *= r;
+                let actualMultiplier = 1;
+                for (const sObj of splitMap[m.date]) {
+                    actualMultiplier *= sObj.ratio;
                 }
-                const newShares = currentShares * splitRatio;
+                const newShares = currentShares * actualMultiplier;
                 stockDividendShares = newShares - currentShares;
                 currentShares = newShares;
             }
@@ -308,6 +309,7 @@ class GhostBacktest {
                 dividendHistory.push({
                     date: de.date,
                     perShare: de.amount,
+                    shares: Math.round(currentShares * 100) / 100,
                     total: Math.round(divAmount),
                 });
             }
@@ -326,10 +328,15 @@ class GhostBacktest {
         }
 
         const finalPrice = currentPrice > 0 ? currentPrice : months[months.length - 1].close;
-        const finalMarketValue = finalPrice * shares;
+        const finalMarketValue = finalPrice * currentShares;
         const totalReturn = finalMarketValue + totalDividendsCash;
         const roi = totalInvested > 0 ? (totalReturn / totalInvested) - 1 : 0;
-        const priceGain = finalPrice - buyPrice;
+
+        // Calculate the equivalent final price PER ORIGINAL SHARE to make a fair comparison.
+        // e.g. if you bought 1000 shares at 103.8, and now have 4000 shares at 77.8,
+        // the equivalent value per original share is 77.8 * 4000 / 1000 = 311.2
+        const equivalentFinalPrice = Math.round(finalPrice * currentShares / shares * 100) / 100;
+        const priceGain = Math.round((equivalentFinalPrice - buyPrice) * 100) / 100;
         const priceGainPct = buyPrice > 0 ? (priceGain / buyPrice) : 0;
 
         // Calculate holding period
@@ -363,8 +370,9 @@ class GhostBacktest {
             currentShares: Math.round(currentShares * 10000) / 10000,
             totalInvested: Math.round(totalInvested),
             finalPrice: Math.round(finalPrice * 100) / 100,
+            equivalentFinalPrice,
             finalMarketValue: Math.round(finalMarketValue),
-            priceGain: Math.round(priceGain * 100) / 100,
+            priceGain,
             priceGainPct,
             totalDividendsCash: Math.round(totalDividendsCash),
             totalReturn: Math.round(totalReturn),
@@ -376,6 +384,113 @@ class GhostBacktest {
             yearlyDividends: Object.values(yearlyDividends).sort((a, b) => a.year.localeCompare(b.year)),
             monthlyDetails,
             currency: currency || 'TWD',
+            cashflows,
+        };
+    }
+
+    static runPortfolio(resultsList, isBuyAndHold = false) {
+        if (!resultsList || resultsList.length === 0) return { error: 'No stocks provided' };
+
+        let totalInvested = 0;
+        let finalMarketValue = 0;
+        let totalDividendsCash = 0;
+        let totalReturn = 0;
+        let allCashflows = [];
+        const breakdown = [];
+
+        // Combine monthly values
+        const aggMonthly = {};
+        const aggYearly = {};
+
+        for (const r of resultsList) {
+            totalInvested += r.result.totalInvested || 0;
+            finalMarketValue += r.result.finalMarketValue || 0;
+            totalDividendsCash += r.result.totalDividendsCash || 0;
+            totalReturn += r.result.totalReturn || 0;
+
+            const negatives = (r.result.cashflows || []).filter(cf => cf.amount < 0);
+            allCashflows = allCashflows.concat(negatives);
+
+            for (const m of (r.result.monthlyDetails || [])) {
+                if (!aggMonthly[m.date]) {
+                    aggMonthly[m.date] = { date: m.date, marketValue: 0, totalInvested: 0, dividendThisMonth: 0, totalDividends: 0, totalReturn: 0 };
+                }
+                aggMonthly[m.date].marketValue += m.marketValue || 0;
+                aggMonthly[m.date].totalInvested += m.totalInvested || m.invested || 0;
+                aggMonthly[m.date].dividendThisMonth += m.dividendThisMonth || 0;
+                aggMonthly[m.date].totalDividends += m.totalDividends || 0;
+                aggMonthly[m.date].totalReturn += m.totalReturn || 0;
+            }
+
+            const yearlySource = isBuyAndHold ? r.result.yearlyDividends : r.result.yearlyDetails;
+            for (const y of (yearlySource || [])) {
+                const year = y.year;
+                if (!aggYearly[year]) {
+                    aggYearly[year] = { year, invested: 0, dividends: 0, endValue: 0, count: 0, total: 0, events: [] };
+                }
+                if (isBuyAndHold) {
+                    aggYearly[year].count += y.count || 0;
+                    aggYearly[year].total += y.total || 0;
+                    if (y.events) {
+                        const taggedEvents = y.events.map(e => ({ ...e, symbol: r.symbol }));
+                        aggYearly[year].events = aggYearly[year].events.concat(taggedEvents);
+                    }
+                } else {
+                    aggYearly[year].invested += y.invested || 0;
+                    aggYearly[year].dividends += y.dividends || 0;
+                    aggYearly[year].endValue += y.endValue || 0;
+                }
+            }
+
+            breakdown.push({
+                symbol: r.symbol,
+                invested: r.result.totalInvested,
+                marketValue: r.result.finalMarketValue,
+                dividends: r.result.totalDividendsCash,
+                totalReturn: r.result.totalReturn,
+                roi: r.result.roi,
+                irr: r.result.irr
+            });
+        }
+
+        allCashflows.push({
+            date: new Date(),
+            amount: totalReturn
+        });
+
+        const tempEngine = new GhostBacktest({ months: [], dividends: [] });
+        const irr = tempEngine.calculateXIRR(allCashflows);
+        const roi = totalInvested > 0 ? (totalReturn / totalInvested) - 1 : 0;
+
+        const monthlyDetails = Object.values(aggMonthly).sort((a,b) => a.date.localeCompare(b.date));
+        const yearlyArray = Object.values(aggYearly).sort((a,b) => a.year.localeCompare(b.year));
+
+        const holdingYears = isBuyAndHold ? Math.max(...resultsList.map(r => r.result.holdingYears || 0)) : null;
+        const buyDate = isBuyAndHold ? resultsList[0].result.buyDate : null; 
+        const priceGain = isBuyAndHold ? resultsList.reduce((sum, r) => sum + (r.result.priceGain * r.result.shares), 0) : null;
+        
+        for (const b of breakdown) {
+            b.weightPct = totalReturn > 0 ? (b.totalReturn / totalReturn) : 0;
+        }
+        breakdown.sort((a,b) => b.weightPct - a.weightPct);
+
+        return {
+            isPortfolio: true,
+            totalInvested: Math.round(totalInvested),
+            finalMarketValue: Math.round(finalMarketValue),
+            totalDividendsCash: Math.round(totalDividendsCash),
+            totalReturn: Math.round(totalReturn),
+            roi,
+            irr,
+            monthlyDetails,
+            yearlyDetails: isBuyAndHold ? null : yearlyArray,
+            yearlyDividends: isBuyAndHold ? yearlyArray : null,
+            holdingYears,
+            buyDate,
+            breakdown,
+            priceGain,
+            years: resultsList[0].result.years,
+            dividendHistory: isBuyAndHold ? resultsList.flatMap(r => r.result.dividendHistory).sort((a,b) => a.date.localeCompare(b.date)) : null
         };
     }
 }
