@@ -1154,7 +1154,7 @@
                     <td class="${m.income.stockDividendIncome > 0 ? 'text-green' : ''}" title="${(() => {
                     if (!m.income.dividendDetails || m.income.dividendDetails.length === 0) return '本月無配息';
                     return '【當月配息明細】\n' + m.income.dividendDetails.map(d =>
-                        `[${d.symbol}] 股數: ${d.shares.toLocaleString(undefined, { maximumFractionDigits: 2 })} | 每股配息: ${d.amountPerShare != null ? d.amountPerShare : '?'} 元 | 殖利率: ${(d.yield * 100).toFixed(2)}% | 配息: NT$ ${fmtCur(d.amount)}`
+                        `[${d.symbol}] 股數: ${d.shares.toLocaleString(undefined, { maximumFractionDigits: 2 })} | 每股配息: ${d.amountPerShare != null ? d.amountPerShare.toFixed(3) : '?'} 元 | 殖利率: ${(d.yield * 100).toFixed(2)}% | 配息: NT$ ${fmtCur(d.amount)}`
                     ).join('\n');
                 })()}">${m.income.stockDividendIncome > 0 ? fmtCur(m.income.stockDividendIncome) : '-'}</td>
                     <td class="${m.income.stockReturn >= 0 ? 'text-green' : 'text-red'}" title="${stockDetails}">${m.income.stockReturn !== 0 ? fmtCur(m.income.stockReturn) : '-'}</td>

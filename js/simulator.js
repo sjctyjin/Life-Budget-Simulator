@@ -313,19 +313,20 @@ class FinancialSimulator {
             const dividendDetails = []; // Per-stock dividend breakdown
             for (const st of activeStocks) {
                 if (st.shares > 0 && st.priceNTD > 0) {
-                    // 1. Dividend payout
                     if (st.payoutSchedule && st.payoutSchedule.length > 0) {
                         const payout = st.payoutSchedule.find(p => p.month === monthInYear);
                         if (payout) {
-                            // Dividend is cash generated based on current value and the specific month's yield
-                            const dividendCash = st.priceNTD * st.shares * payout.yield;
+                            // Dividend is cash generated based on current simulated value and the specific month's yield
+                            // Because priceNTD fluctuates via Monte Carlo, the effective amountPerShare fluctuates accordingly
+                            const currentAmountPerShare = st.priceNTD * payout.yield;
+                            const dividendCash = currentAmountPerShare * st.shares;
                             stockDividendIncome += dividendCash;
                             dividendDetails.push({
                                 symbol: st.symbol || st.shortName || '股票',
                                 shares: st.shares,
                                 priceNTD: st.priceNTD,
                                 yield: payout.yield,
-                                amountPerShare: payout.amountPerShare || 0,
+                                amountPerShare: currentAmountPerShare,
                                 amount: dividendCash,
                             });
                         }
@@ -697,7 +698,9 @@ class FinancialSimulator {
         if (bankruptcyRate > 0.1) {
             recommendation = `❌ 嚴重警告：破產風險極高 (${(bankruptcyRate * 100).toFixed(1)}%)！模擬顯示在此決策下，你有超過一成的機率會陷入現金流斷絕。強烈建議大幅下修決策規模。`;
         } else if (bankruptcyRate > 0) {
-            recommendation = `⚠️ 警告：存在破產風險 (${(bankruptcyRate * 100).toFixed(1)}%)。雖然結果可能不錯，但過程中流動性極度吃緊。建議至少增加 NT$ ${incomeNeeded.toLocaleString()} 元的月收入，或增加緊急預備金來抵禦風險。`;
+            const displayRate = (bankruptcyRate * 100) < 0.1 ? 0.1 : (bankruptcyRate * 100);
+            const extraIncomeText = incomeNeeded > 0 ? `建議至少增加 NT$ ${incomeNeeded.toLocaleString()} 元的月收入，或` : '建議';
+            recommendation = `⚠️ 警告：存在破產風險 (${displayRate.toFixed(1)}%)。雖然結果可能不錯，但過程中流動性極度吃緊。${extraIncomeText}增加緊急預備金來抵禦風險。`;
         } else if (successRate >= 0.8) {
             recommendation = '✅ 資產增長率良好且無破產紀錄。在此決策下，你的資產有高機率在模擬期間持續成長，財務相當穩健。';
         } else if (successRate >= 0.6) {

@@ -138,6 +138,13 @@
                     <input type="month" class="form-input" id="bh-date" value="2020-07">
                     <p class="form-hint">整批買入的起始年月</p>
                 </div>
+                <div class="form-group" style="flex:1;">
+                    <label class="form-label" for="bh-dividend-mode">配息處理方式</label>
+                    <select class="form-select" id="bh-dividend-mode">
+                        <option value="cash">領取現金</option>
+                        <option value="reinvest">股息再投入</option>
+                    </select>
+                </div>
             </div>
 
             <div class="ghost-actions">
@@ -294,7 +301,8 @@
                             insCashflows.push({ date: d, amount: -annualPayment });
                         }
                         insCashflows.push({ date: now, amount: insTotal });
-                        const insIRR = engine.calculateXIRR(insCashflows);
+                        const tempEngine = new GhostBacktest({ months: [], dividends: [] });
+                        const insIRR = tempEngine.calculateXIRR(insCashflows);
 
                         insurance = {
                             name: insName, invested: insInvested, surrender: insSurrender,
@@ -302,7 +310,7 @@
                         };
                     }
 
-                    displayDCAResults(result, data, insurance);
+                    displayDCAResults(result, insurance);
                 } catch (err) {
                     alert('無法連線到伺服器，請確認 server.js 正在運行');
                     console.error(err);
@@ -389,23 +397,36 @@
                 const ctx = $('ghost-chart').getContext('2d');
                 if (ghostChart) ghostChart.destroy();
                 const labels = monthlyDetails.map(m => m.date);
+                const hasPrice = monthlyDetails.length > 0 && monthlyDetails[0].price !== undefined;
+
+                const datasets = [
+                    { label: '市值', data: monthlyDetails.map(m => m.currentValue || m.marketValue), borderColor: '#06b6d4', backgroundColor: 'rgba(6,182,212,0.1)', fill: true, tension: 0.3, pointRadius: 0, borderWidth: 2, yAxisID: 'y' },
+                    { label: '累計投入', data: monthlyDetails.map(m => m.totalInvested), borderColor: '#6366f1', backgroundColor: 'rgba(99,102,241,0.05)', fill: true, tension: 0, pointRadius: 0, borderWidth: 2, borderDash: [6, 3], yAxisID: 'y' }
+                ];
+
+                if (hasPrice) {
+                    datasets.push({
+                        label: '單一標的股價', data: monthlyDetails.map(m => m.price), borderColor: '#f59e0b', backgroundColor: 'transparent', fill: false, tension: 0.2, pointRadius: 0, borderWidth: 1.5, borderDash: [2, 2], yAxisID: 'yPrice'
+                    });
+                }
+
+                const scales = {
+                    x: { ticks: { color: '#64748b', maxTicksLimit: 12 }, grid: { color: 'rgba(124,58,237,0.06)' } },
+                    y: { type: 'linear', display: true, position: 'left', ticks: { color: '#64748b', callback: v => 'NT$' + (v / 10000).toFixed(0) + '萬' }, grid: { color: 'rgba(124,58,237,0.06)' } },
+                };
+
+                if (hasPrice) {
+                    scales.yPrice = { type: 'linear', display: true, position: 'right', ticks: { color: '#f59e0b', callback: v => '$' + v.toFixed(1) }, grid: { drawOnChartArea: false } };
+                }
+
                 ghostChart = new Chart(ctx, {
                     type: 'line',
-                    data: {
-                        labels,
-                        datasets: [
-                            { label: '市值', data: monthlyDetails.map(m => m.currentValue), borderColor: '#06b6d4', backgroundColor: 'rgba(6,182,212,0.1)', fill: true, tension: 0.3, pointRadius: 0, borderWidth: 2 },
-                            { label: '累計投入', data: monthlyDetails.map(m => m.totalInvested), borderColor: '#6366f1', backgroundColor: 'rgba(99,102,241,0.05)', fill: true, tension: 0, pointRadius: 0, borderWidth: 2, borderDash: [6, 3] },
-                        ],
-                    },
+                    data: { labels, datasets },
                     options: {
                         responsive: true, maintainAspectRatio: false,
                         interaction: { mode: 'index', intersect: false },
-                        plugins: { legend: { labels: { color: '#94a3b8' } }, tooltip: { callbacks: { label: ctx => `${ctx.dataset.label}: NT$ ${Math.round(ctx.parsed.y).toLocaleString()}` } } },
-                        scales: {
-                            x: { ticks: { color: '#64748b', maxTicksLimit: 12 }, grid: { color: 'rgba(124,58,237,0.06)' } },
-                            y: { ticks: { color: '#64748b', callback: v => 'NT$' + (v / 10000).toFixed(0) + '萬' }, grid: { color: 'rgba(124,58,237,0.06)' } },
-                        },
+                        plugins: { legend: { labels: { color: '#94a3b8' } }, tooltip: { callbacks: { label: ctx => `${ctx.dataset.label}: ${ctx.dataset.yAxisID === 'yPrice' ? '$' : 'NT$ '} ${ctx.dataset.yAxisID === 'yPrice' ? ctx.parsed.y.toFixed(2) : Math.round(ctx.parsed.y).toLocaleString()}` } } },
+                        scales
                     },
                 });
             }
@@ -459,6 +480,7 @@
                     }
                 }
                 const buyDate = $('bh-date').value; // 'YYYY-MM'
+                const reinvest = $('bh-dividend-mode').value === 'reinvest';
 
                 if (portfolioConfig.length === 0) { alert('請輸入至少一檔股票代號與對應股數'); return; }
                 if (!buyDate) { alert('請選擇單筆買入年月'); return; }
@@ -491,6 +513,7 @@
                             shares: f.shares,
                             currentPrice: f.data.currentPrice,
                             currency: f.data.currency,
+                            reinvestDividends: reinvest
                         });
                         if (result.error) throw new Error(`回測 ${f.symbol} 失敗：${result.error}`);
                         engineConfigs.push({ symbol: f.symbol, result });
@@ -532,8 +555,8 @@
                     </div>
                     <div class="ghost-stat-card">
                         <div class="stat-icon">🎁</div>
-                        <div class="stat-value" style="color:var(--accent-purple)">NT$ ${fmtCur(result.totalDividendsCash)}</div>
-                        <div class="stat-label">累計總配息收入</div>
+                        <div class="stat-value" style="color:var(--accent-purple)">NT$ ${fmtCur(result.totalDividendsCash + (result.totalDividendsReinvested || 0))}</div>
+                        <div class="stat-label">總配息 (現金/再投入)</div>
                     </div>
                     <div class="ghost-stat-card">
                         <div class="stat-icon">💎</div>
@@ -580,7 +603,7 @@
                 
                 let html = `<h3 style="margin-bottom:12px; font-size:1.1rem; color:var(--text-primary);"><span style="font-size:1.2rem; vertical-align:middle;">💼</span> 投資組合配置與獨立績效表</h3>
                             <table class="ghost-table">
-                            <thead><tr><th>標的</th><th>佔比</th><th>投入資金</th><th>現金配息</th><th>現值總計</th><th>總報酬ROI</th><th>年化IRR</th></tr></thead><tbody>`;
+                            <thead><tr><th>標的</th><th>佔比</th><th>投入資金</th><th>配息 (現金/存股)</th><th>現值總計</th><th>總報酬ROI</th><th>年化IRR</th></tr></thead><tbody>`;
                 for (const b of breakdown) {
                     html += `<tr>
                                 <td style="font-weight:bold;color:var(--accent-purple);">${b.symbol}</td>
@@ -600,24 +623,37 @@
                 const ctx = $('bh-chart').getContext('2d');
                 if (bhChart) bhChart.destroy();
                 const labels = monthlyDetails.map(m => m.date);
+                const hasPrice = monthlyDetails.length > 0 && monthlyDetails[0].price !== undefined;
+
+                const datasets = [
+                    { label: '市值', data: monthlyDetails.map(m => m.marketValue), borderColor: '#06b6d4', backgroundColor: 'rgba(6,182,212,0.1)', fill: true, tension: 0.3, pointRadius: 0, borderWidth: 2, yAxisID: 'y' },
+                    { label: '總報酬 (市值+累計配息)', data: monthlyDetails.map(m => m.totalReturn), borderColor: '#a855f7', backgroundColor: 'rgba(168,85,247,0.08)', fill: false, tension: 0.3, pointRadius: 0, borderWidth: 2, borderDash: [4, 2], yAxisID: 'y' },
+                    { label: '買入成本', data: monthlyDetails.map(() => totalInvested), borderColor: '#ef4444', backgroundColor: 'transparent', fill: false, tension: 0, pointRadius: 0, borderWidth: 1.5, borderDash: [8, 4], yAxisID: 'y' }
+                ];
+
+                if (hasPrice) {
+                    datasets.push({
+                        label: '單一標的股價', data: monthlyDetails.map(m => m.price), borderColor: '#f59e0b', backgroundColor: 'transparent', fill: false, tension: 0.2, pointRadius: 0, borderWidth: 1.5, borderDash: [2, 2], yAxisID: 'yPrice'
+                    });
+                }
+
+                const scales = {
+                    x: { ticks: { color: '#64748b', maxTicksLimit: 12 }, grid: { color: 'rgba(124,58,237,0.06)' } },
+                    y: { type: 'linear', display: true, position: 'left', ticks: { color: '#64748b', callback: v => 'NT$' + (v / 10000).toFixed(0) + '萬' }, grid: { color: 'rgba(124,58,237,0.06)' } },
+                };
+
+                if (hasPrice) {
+                    scales.yPrice = { type: 'linear', display: true, position: 'right', ticks: { color: '#f59e0b', callback: v => '$' + v.toFixed(1) }, grid: { drawOnChartArea: false } };
+                }
+
                 bhChart = new Chart(ctx, {
                     type: 'line',
-                    data: {
-                        labels,
-                        datasets: [
-                            { label: '市值', data: monthlyDetails.map(m => m.marketValue), borderColor: '#06b6d4', backgroundColor: 'rgba(6,182,212,0.1)', fill: true, tension: 0.3, pointRadius: 0, borderWidth: 2 },
-                            { label: '總報酬 (市值+累計配息)', data: monthlyDetails.map(m => m.totalReturn), borderColor: '#a855f7', backgroundColor: 'rgba(168,85,247,0.08)', fill: false, tension: 0.3, pointRadius: 0, borderWidth: 2, borderDash: [4, 2] },
-                            { label: '買入成本', data: monthlyDetails.map(() => totalInvested), borderColor: '#ef4444', backgroundColor: 'transparent', fill: false, tension: 0, pointRadius: 0, borderWidth: 1.5, borderDash: [8, 4] },
-                        ],
-                    },
+                    data: { labels, datasets },
                     options: {
                         responsive: true, maintainAspectRatio: false,
                         interaction: { mode: 'index', intersect: false },
-                        plugins: { legend: { labels: { color: '#94a3b8' } }, tooltip: { callbacks: { label: ctx => `${ctx.dataset.label}: NT$ ${Math.round(ctx.parsed.y).toLocaleString()}` } } },
-                        scales: {
-                            x: { ticks: { color: '#64748b', maxTicksLimit: 12 }, grid: { color: 'rgba(124,58,237,0.06)' } },
-                            y: { ticks: { color: '#64748b', callback: v => 'NT$' + (v / 10000).toFixed(0) + '萬' }, grid: { color: 'rgba(124,58,237,0.06)' } },
-                        },
+                        plugins: { legend: { labels: { color: '#94a3b8' } }, tooltip: { callbacks: { label: ctx => `${ctx.dataset.label}: ${ctx.dataset.yAxisID === 'yPrice' ? '$' : 'NT$ '} ${ctx.dataset.yAxisID === 'yPrice' ? ctx.parsed.y.toFixed(2) : Math.round(ctx.parsed.y).toLocaleString()}` } } },
+                        scales
                     },
                 });
             }
@@ -634,7 +670,8 @@
                         // For portfolio aggregated events, we have a symbol field
                         const details = (y.events || []).map(e => {
                             const symPrefix = e.symbol ? `<span style="color:var(--accent-purple);font-weight:bold;">[${e.symbol}]</span> ` : '';
-                            return `${symPrefix}${e.date} (${e.perShare}元/股 × ${e.shares}股 → NT$${fmtCur(e.total)})`;
+                            const drText = e.reinvestedShares ? ` <span class="text-green">(股息再投入 +${e.reinvestedShares.toFixed(2)} 股)</span>` : '';
+                            return `${symPrefix}${e.date} (${e.perShare}元/股 × ${e.shares}股 → NT$${fmtCur(e.total)})${drText}`;
                         }).join('<br>');
                         
                         html += `<tr>
