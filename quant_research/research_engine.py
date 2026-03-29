@@ -252,6 +252,12 @@ def run_alphalens_analysis(factors_df, prices_df):
         print('  ⚠️ alphalens-reloaded 未安裝，跳過因子分析')
         return {}
 
+    # Alphalens needs at least 3 stocks to create quantile bins
+    n_symbols = prices_df['symbol'].nunique()
+    if n_symbols < 3:
+        print(f'  ⚠️ Alphalens 需要至少 3 檔股票才能分組分析，目前只有 {n_symbols} 檔，跳過')
+        return {}
+
     # Prepare pricing data for Alphalens
     prices_df = prices_df.copy()
     prices_df['date'] = pd.to_datetime(prices_df['date'])
@@ -259,6 +265,8 @@ def run_alphalens_analysis(factors_df, prices_df):
     pricing = pricing.sort_index()
 
     ic_results = {}
+    # Use fewer quantiles for smaller stock pools
+    n_quantiles = min(3, n_symbols)
 
     for factor_name in ['trend', 'momentum', 'flow']:
         try:
@@ -271,8 +279,13 @@ def run_alphalens_analysis(factors_df, prices_df):
                 continue
 
             factor_data = alphalens.utils.get_clean_factor_and_forward_returns(
-                fdf, pricing, periods=(5, 20), max_loss=0.5, quantiles=3
+                fdf, pricing, periods=(5, 20), max_loss=1.0, quantiles=n_quantiles
             )
+
+            if len(factor_data) < 50:
+                print(f'  ⚠️ {factor_name}: 清理後資料太少 ({len(factor_data)} 筆)，跳過')
+                ic_results[factor_name] = {'ic_5d': 0, 'ic_20d': 0}
+                continue
 
             ic = alphalens.performance.factor_information_coefficient(factor_data)
             ic_mean = ic.mean()
@@ -293,6 +306,16 @@ def run_alphalens_analysis(factors_df, prices_df):
 # ============================================================
 # 4. VectorBT Backtesting — 參數掃描 & 回測
 # ============================================================
+def _safe_scalar(val):
+    """Safely extract a scalar from VBT result (may be Series or scalar)."""
+    if isinstance(val, pd.Series):
+        val = val.mean()  # aggregate multi-column result
+    v = float(val)
+    if np.isnan(v) or np.isinf(v):
+        return 0.0
+    return v
+
+
 def run_vectorbt_backtest(factors_df, prices_df):
     """
     使用 VectorBT 進行多因子權重掃描回測。
@@ -313,6 +336,10 @@ def run_vectorbt_backtest(factors_df, prices_df):
     price_matrix = prices_df.pivot_table(index='date', columns='symbol', values='close', aggfunc='last')
     price_matrix = price_matrix.sort_index().dropna(how='all')
 
+    n_symbols = len(price_matrix.columns)
+    is_single = n_symbols == 1
+    print(f'  [INFO] 股票數: {n_symbols}, single={is_single}')
+
     # 權重組合掃描 (trend, momentum, flow)
     weight_grid = []
     for t in np.arange(0.1, 0.8, 0.1):
@@ -328,6 +355,8 @@ def run_vectorbt_backtest(factors_df, prices_df):
     best_stats = {}
     all_results = []
     best_equity_curve = []
+    fail_count = 0
+    first_error = None
 
     for (wt, wm, wf) in weight_grid:
         try:
@@ -339,27 +368,35 @@ def run_vectorbt_backtest(factors_df, prices_df):
             score_matrix = combo.pivot_table(index='date', columns='symbol', values='score', aggfunc='mean')
             score_matrix = score_matrix.reindex(price_matrix.index).fillna(0)
 
-            # 每日取分數前 30% 的股票作為買入訊號
-            threshold = score_matrix.quantile(0.7, axis=1)
-            entries = score_matrix.gt(threshold, axis=0)
-            exits = score_matrix.lt(score_matrix.quantile(0.3, axis=1), axis=0)
-
-            common_cols = price_matrix.columns.intersection(entries.columns)
+            common_cols = price_matrix.columns.intersection(score_matrix.columns)
             if len(common_cols) == 0:
                 continue
 
+            if is_single:
+                # Single stock: use score > 0 as entry, score < -0.5 as exit
+                col = common_cols[0]
+                scores_series = score_matrix[col]
+                entries = pd.DataFrame({col: scores_series > 0}, index=score_matrix.index)
+                exits = pd.DataFrame({col: scores_series < -0.5}, index=score_matrix.index)
+            else:
+                # Multi stock: top 30% entry, bottom 30% exit
+                threshold_entry = score_matrix[common_cols].quantile(0.7, axis=1)
+                threshold_exit = score_matrix[common_cols].quantile(0.3, axis=1)
+                entries = score_matrix[common_cols].gt(threshold_entry, axis=0)
+                exits = score_matrix[common_cols].lt(threshold_exit, axis=0)
+
             pf = vbt.Portfolio.from_signals(
                 price_matrix[common_cols],
-                entries[common_cols],
-                exits[common_cols],
+                entries,
+                exits,
                 init_cash=1_000_000,
                 fees=0.001425,
                 freq='1D'
             )
 
-            total_return = float(pf.total_return())
-            sharpe = float(pf.sharpe_ratio()) if not np.isnan(pf.sharpe_ratio()) else 0
-            max_dd = float(pf.max_drawdown())
+            total_return = _safe_scalar(pf.total_return())
+            sharpe = _safe_scalar(pf.sharpe_ratio())
+            max_dd = _safe_scalar(pf.max_drawdown())
 
             result = {
                 'weights': {'trend': wt, 'momentum': wm, 'flow': wf,
@@ -386,14 +423,22 @@ def run_vectorbt_backtest(factors_df, prices_df):
                     best_equity_curve = []
 
         except Exception as e:
-            print(f'  [DEBUG] VBT combo ({wt},{wm},{wf}) failed: {e}')
+            fail_count += 1
+            if first_error is None:
+                first_error = str(e)
+            if fail_count <= 3:
+                print(f'  [DEBUG] VBT combo ({wt},{wm},{wf}) failed: {e}')
             continue
+
+    if fail_count > 0:
+        print(f'  [WARN] {fail_count}/{len(weight_grid)} VBT combos failed. First error: {first_error}')
 
     if best_stats:
         print(f'  [OK] Best: trend={best_weights[0]}, momentum={best_weights[1]}, flow={best_weights[2]}')
         print(f'       Sharpe={best_sharpe:.4f}')
     else:
-        print(f'  [WARN] No valid backtest results')
+        print(f'  [WARN] No valid VBT backtest results, falling back to simple backtest...')
+        return run_simple_backtest(factors_df, prices_df)
 
     return {
         'best': best_stats,
