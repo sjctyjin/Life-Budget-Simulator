@@ -415,8 +415,32 @@ def run_simple_backtest(factors_df, prices_df):
     price_matrix = prices_df.pivot_table(index='date', columns='symbol', values='close', aggfunc='last')
     price_matrix = price_matrix.sort_index().dropna(how='all')
 
+    print(f'  [DEBUG] price_matrix shape: {price_matrix.shape}, date range: {price_matrix.index.min()} ~ {price_matrix.index.max()}')
+
+    if price_matrix.shape[0] < 60 or price_matrix.shape[1] == 0:
+        print(f'  [WARN] price_matrix too small ({price_matrix.shape}), skipping backtest')
+        return {'best': {}, 'equity_curve': [], 'all_results': []}
+
     # 日報酬率
     returns = price_matrix.pct_change().fillna(0)
+    # 清理異常報酬率 (防止 inf 或過大值導致崩潰)
+    returns = returns.clip(-0.5, 0.5)  # 單日最大漲跌幅限制
+    returns = returns.replace([np.inf, -np.inf], 0)
+
+    # 因子資料對齊
+    score_columns = ['trend', 'momentum', 'flow']
+    factor_pivot = {}
+    for col in score_columns:
+        if col in factors_df.columns:
+            fp = factors_df.pivot_table(index='date', columns='symbol', values=col, aggfunc='mean')
+            fp = fp.reindex(price_matrix.index).fillna(0)
+            factor_pivot[col] = fp
+
+    if not factor_pivot:
+        print('  [WARN] No factor data could be aligned, skipping backtest')
+        return {'best': {}, 'equity_curve': [], 'all_results': []}
+
+    print(f'  [DEBUG] factor columns aligned: {list(factor_pivot.keys())}')
 
     weight_grid = []
     for t in np.arange(0.1, 0.8, 0.1):
@@ -431,45 +455,65 @@ def run_simple_backtest(factors_df, prices_df):
     best_result = {}
     all_results = []
     best_equity_curve = []
+    fail_count = 0
+    first_error = None
 
     for (wt, wm, wf) in weight_grid:
         try:
-            combo = factors_df.copy()
-            combo['score'] = (combo['trend'] * wt +
-                              combo['momentum'] * wm +
-                              combo['flow'] * wf)
+            # 直接用 pre-computed pivot 而非每次重新 pivot
+            score_matrix = (
+                factor_pivot.get('trend', pd.DataFrame(0, index=price_matrix.index, columns=price_matrix.columns)) * wt +
+                factor_pivot.get('momentum', pd.DataFrame(0, index=price_matrix.index, columns=price_matrix.columns)) * wm +
+                factor_pivot.get('flow', pd.DataFrame(0, index=price_matrix.index, columns=price_matrix.columns)) * wf
+            )
 
-            # 用 pivot_table 防止重複索引
-            score_matrix = combo.pivot_table(index='date', columns='symbol', values='score', aggfunc='mean')
-            score_matrix = score_matrix.reindex(price_matrix.index).fillna(0)
+            # 確保只用共同欄位
+            common_cols = price_matrix.columns.intersection(score_matrix.columns)
+            if len(common_cols) < 2:
+                continue
+
+            score_sub = score_matrix[common_cols]
+            returns_sub = returns[common_cols]
 
             # 每日取分數前 30% 的股票持有，等權重
-            threshold = score_matrix.quantile(0.7, axis=1)
-            position = score_matrix.gt(threshold, axis=0).astype(float)
+            threshold = score_sub.quantile(0.7, axis=1)
+            position = score_sub.gt(threshold, axis=0).astype(float)
             position_count = position.sum(axis=1).replace(0, 1)
             weighted_pos = position.div(position_count, axis=0)
 
             # 投資組合日報酬
-            common_cols = returns.columns.intersection(weighted_pos.columns)
-            if len(common_cols) == 0:
-                continue
-
-            portfolio_ret = (returns[common_cols] * weighted_pos[common_cols]).sum(axis=1)
+            portfolio_ret = (returns_sub * weighted_pos).sum(axis=1)
 
             # 扣除交易成本 (簡化)
             turnover = weighted_pos.diff().abs().sum(axis=1).fillna(0)
-            portfolio_ret -= turnover * 0.001425
+            portfolio_ret = portfolio_ret - turnover * 0.001425
+
+            # 清理異常值
+            portfolio_ret = portfolio_ret.replace([np.inf, -np.inf], 0).fillna(0)
 
             # 計算績效指標
             cumret = (1 + portfolio_ret).cumprod()
-            total_return = float(cumret.iloc[-1] - 1) if len(cumret) > 0 else 0
+
+            if len(cumret) == 0 or cumret.iloc[-1] <= 0:
+                continue
+
+            total_return = float(cumret.iloc[-1] - 1)
+
+            if np.isnan(total_return) or np.isinf(total_return):
+                continue
 
             # 年化
             n_days = len(cumret)
             ann_ret = ((1 + total_return) ** (252 / max(n_days, 1))) - 1
             ann_vol = float(portfolio_ret.std() * np.sqrt(252))
-            sharpe = ann_ret / ann_vol if ann_vol > 0 else 0
+            sharpe = ann_ret / ann_vol if ann_vol > 0.001 else 0
             max_dd = float((cumret / cumret.cummax() - 1).min())
+
+            # Sanity check
+            if np.isnan(sharpe) or np.isinf(sharpe):
+                sharpe = 0
+            if np.isnan(max_dd) or np.isinf(max_dd):
+                max_dd = 0
 
             result = {
                 'weights': {'trend': wt, 'momentum': wm, 'flow': wf,
@@ -490,15 +534,23 @@ def run_simple_backtest(factors_df, prices_df):
                 ]
 
         except Exception as e:
-            print(f'  [DEBUG] Simple combo ({wt},{wm},{wf}) failed: {e}')
+            fail_count += 1
+            if first_error is None:
+                first_error = str(e)
+            if fail_count <= 3:
+                print(f'  [DEBUG] Simple combo ({wt},{wm},{wf}) failed: {e}')
             continue
+
+    if fail_count > 0:
+        print(f'  [WARN] {fail_count}/{len(weight_grid)} combos failed. First error: {first_error}')
 
     if best_result:
         bw = best_result['weights']
         print(f'  [OK] Best: trend={bw["trend"]}, momentum={bw["momentum"]}, flow={bw["flow"]}')
         print(f'       Sharpe={best_result["sharpe_ratio"]:.4f}, Return={best_result["total_return"]:.2f}%, MDD={best_result["max_drawdown"]:.2f}%')
     else:
-        print(f'  [WARN] No valid backtest results, check data')
+        print(f'  [WARN] No valid backtest results. Checked {len(weight_grid)} combos, {fail_count} failed.')
+        print(f'         price_matrix: {price_matrix.shape}, returns range: [{returns.min().min():.4f}, {returns.max().max():.4f}]')
 
     return {
         'best': best_result,

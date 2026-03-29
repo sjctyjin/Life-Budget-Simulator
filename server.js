@@ -504,6 +504,8 @@ app.get('/api/quant/results', (req, res) => {
 
 // Trigger Python research (async, returns immediately)
 let researchRunning = false;
+let researchLog = [];
+let researchError = '';
 app.post('/api/quant/run-research', express.json(), (req, res) => {
     if (researchRunning) {
         return res.status(409).json({ error: '研究正在執行中，請稍後...' });
@@ -519,6 +521,8 @@ app.post('/api/quant/run-research', express.json(), (req, res) => {
     if (token) args.push('--token', token);
 
     researchRunning = true;
+    researchLog = ['🧠 啟動 Python 研究引擎...'];
+    researchError = '';
     console.log(`\n🧠 啟動 Python 研究引擎: python ${args.join(' ')}`);
 
     const child = execFile('python', args, { cwd: QUANT_DIR, timeout: 600000 }, (err, stdout, stderr) => {
@@ -526,11 +530,35 @@ app.post('/api/quant/run-research', express.json(), (req, res) => {
         if (err) {
             console.error('❌ Python 研究失敗:', err.message);
             console.error(stderr);
+            researchError = err.message;
+            researchLog.push(`❌ 執行失敗: ${err.message}`);
         } else {
             console.log('✅ Python 研究完成');
             console.log(stdout);
+            researchLog.push('✅ 研究完成！');
         }
     });
+
+    // Capture real-time stdout
+    if (child.stdout) {
+        child.stdout.on('data', (data) => {
+            const lines = data.toString().split('\n').filter(l => l.trim());
+            for (const line of lines) {
+                researchLog.push(line);
+                // Keep last 50 lines
+                if (researchLog.length > 50) researchLog.shift();
+            }
+        });
+    }
+    if (child.stderr) {
+        child.stderr.on('data', (data) => {
+            const lines = data.toString().split('\n').filter(l => l.trim());
+            for (const line of lines) {
+                researchLog.push(`⚠️ ${line}`);
+                if (researchLog.length > 50) researchLog.shift();
+            }
+        });
+    }
 
     res.json({ status: 'started', message: '研究已啟動，請稍後查看結果（約需 1~5 分鐘）' });
 });

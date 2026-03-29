@@ -540,6 +540,8 @@
         $('research-results').classList.remove('active');
         $('research-status').textContent = '正在啟動 Python 研究引擎...';
 
+        let pollCount = 0;
+
         try {
             const res = await fetch('/api/quant/run-research', {
                 method: 'POST',
@@ -548,30 +550,54 @@
             });
             const data = await res.json();
 
-            if (data.error) { alert(`❌ ${data.error}`); return; }
+            if (data.error) {
+                alert(`❌ ${data.error}`);
+                btn.disabled = false;
+                btn.textContent = '🚀 執行 Python 研究';
+                $('research-loading').classList.remove('active');
+                return;
+            }
 
-            $('research-status').textContent = '⏳ Python 研究執行中，每 10 秒輪詢結果...';
-
-            // Poll for completion
+            // Keep polling — do NOT hide the loading spinner until done
             const pollInterval = setInterval(async () => {
+                pollCount++;
+
                 try {
                     const statusRes = await fetch('/api/quant/status');
                     const statusData = await statusRes.json();
 
+                    // Update loading UI with real-time log
+                    const loadingText = $('research-loading').querySelector('.loading-text');
+                    const loadingSub = $('research-loading').querySelector('.loading-sub');
+                    const log = statusData.log || [];
+                    const lastLog = log.length > 0 ? log[log.length - 1] : '';
+
+                    if (loadingText) loadingText.textContent = `正在執行 Python 量化研究引擎... (已等待 ${pollCount * 5} 秒)`;
+                    if (loadingSub) loadingSub.textContent = lastLog || `資料抓取 → 因子計算 → 回測掃描中，請耐心等候`;
+                    $('research-status').textContent = `⏳ 執行中... ${lastLog}`;
+
                     if (!statusData.running) {
                         clearInterval(pollInterval);
-                        $('research-status').textContent = '✅ 研究完成！正在載入結果...';
-                        await loadResearchResults();
+                        btn.disabled = false;
+                        btn.textContent = '🚀 執行 Python 研究';
+                        $('research-loading').classList.remove('active');
+
+                        if (statusData.error) {
+                            $('research-status').textContent = `❌ 執行失敗: ${statusData.error}`;
+                            alert(`Python 研究引擎執行失敗:\n${statusData.error}\n\n請檢查終端機的詳細日誌。`);
+                        } else {
+                            $('research-status').textContent = '✅ 研究完成！正在載入結果...';
+                            await loadResearchResults();
+                        }
                     }
                 } catch (e) {
                     // Server might be busy, keep polling
                 }
-            }, 10000);
+            }, 5000);
 
         } catch (err) {
             alert('無法連線到伺服器');
             console.error(err);
-        } finally {
             btn.disabled = false;
             btn.textContent = '🚀 執行 Python 研究';
             $('research-loading').classList.remove('active');
@@ -603,26 +629,29 @@
         $('research-results').classList.add('active');
 
         const best = data.backtest?.best || {};
-        const weights = best.weights || {};
+        const hasBest = best && Object.keys(best).length > 0;
+        // Use recommended_weights as fallback when best.weights is empty
+        const weights = (hasBest && best.weights) ? best.weights : (data.recommended_weights || {});
 
-        // Stats cards
-        const sharpe = best.sharpe_ratio;
-        const sharpeColor = sharpe >= 1 ? '#10b981' : sharpe >= 0.5 ? '#f59e0b' : '#ef4444';
-        $('stat-sharpe').textContent = sharpe != null ? sharpe.toFixed(4) : '-';
+        // Stats cards — null-safe
+        const sharpe = hasBest ? best.sharpe_ratio : null;
+        const sharpeColor = sharpe != null ? (sharpe >= 1 ? '#10b981' : sharpe >= 0.5 ? '#f59e0b' : '#ef4444') : '#64748b';
+        $('stat-sharpe').textContent = sharpe != null ? sharpe.toFixed(4) : '無回測資料';
         $('stat-sharpe').style.color = sharpeColor;
+        if (!hasBest) $('stat-sharpe').style.fontSize = '1rem';
 
-        const ret = best.total_return;
+        const ret = hasBest ? best.total_return : null;
         $('stat-return').textContent = ret != null ? `${ret >= 0 ? '+' : ''}${ret.toFixed(2)}%` : '-';
-        $('stat-return').style.color = ret >= 0 ? '#10b981' : '#ef4444';
+        $('stat-return').style.color = ret != null ? (ret >= 0 ? '#10b981' : '#ef4444') : '#64748b';
 
-        const mdd = best.max_drawdown;
+        const mdd = hasBest ? best.max_drawdown : null;
         $('stat-mdd').textContent = mdd != null ? `${mdd.toFixed(2)}%` : '-';
         $('stat-mdd').style.color = '#ef4444';
 
         $('stat-count').textContent = data.symbols_count || '-';
         $('stat-count').style.color = '#06b6d4';
 
-        // Best weights grid
+        // Best weights grid — use recommended_weights as fallback
         const wMeta = [
             { key: 'trend', name: '📈 趨勢', color: '#10b981' },
             { key: 'momentum', name: '⚡ 動能', color: '#06b6d4' },
@@ -630,6 +659,7 @@
             { key: 'fundamental', name: '📊 基本面', color: '#f59e0b' },
             { key: 'sentiment', name: '🎭 情緒', color: '#ec4899' },
         ];
+        const weightSource = hasBest ? '回測最佳' : '預設推薦';
         $('best-weights-grid').innerHTML = wMeta.map(w => {
             const val = weights[w.key];
             const pct = val != null ? Math.round(val * 100) : 0;
@@ -637,7 +667,7 @@
                 <div class="ind-label">${w.name}</div>
                 <div class="ind-value" style="color:${w.color};font-size:1.4rem;">${pct}%</div>
             </div>`;
-        }).join('');
+        }).join('') + `<div class="indicator-item"><div class="ind-label" style="font-size:0.8rem;">來源</div><div class="ind-value" style="color:#64748b;font-size:0.9rem;">${weightSource}</div></div>`;
 
         // Period info
         const period = data.research_period || {};
@@ -670,6 +700,15 @@
             </div>`;
         }).join('');
 
+        // No backtest warning
+        if (!hasBest) {
+            $('factor-ic-grid').innerHTML += `
+                <div class="indicator-item" style="grid-column:1/-1;background:rgba(245,158,11,0.08);border-radius:8px;padding:12px;margin-top:8px;">
+                    <div class="ind-label" style="color:#f59e0b;">⚠️ 回測引擎未產出結果</div>
+                    <div class="ind-value" style="color:var(--text-dim);font-size:0.85rem;line-height:1.5;">可能原因：VectorBT 未安裝且簡易回測中所有權重組合失敗。請在終端機檢查 Python 輸出日誌以取得詳細錯誤。</div>
+                </div>`;
+        }
+
         // Top 10 combos
         const allResults = data.backtest?.all_results || [];
         if (allResults.length > 0) {
@@ -680,19 +719,24 @@
             </tr></thead><tbody>`;
             allResults.forEach((r, i) => {
                 const w = r.weights || {};
-                const sColor = r.sharpe_ratio >= 1 ? 'text-green' : r.sharpe_ratio >= 0.5 ? 'text-yellow' : 'text-red';
+                const sr = r.sharpe_ratio || 0;
+                const tr = r.total_return || 0;
+                const md = r.max_drawdown || 0;
+                const sColor = sr >= 1 ? 'text-green' : sr >= 0.5 ? 'text-yellow' : 'text-red';
                 tableHtml += `<tr>
                     <td style="text-align:left">${i + 1}</td>
                     <td>${Math.round((w.trend || 0) * 100)}%</td>
                     <td>${Math.round((w.momentum || 0) * 100)}%</td>
                     <td>${Math.round((w.flow || 0) * 100)}%</td>
-                    <td class="${sColor}" style="font-weight:700;">${r.sharpe_ratio.toFixed(4)}</td>
-                    <td class="${r.total_return >= 0 ? 'text-green' : 'text-red'}">${r.total_return >= 0 ? '+' : ''}${r.total_return.toFixed(2)}%</td>
-                    <td class="text-red">${r.max_drawdown.toFixed(2)}%</td>
+                    <td class="${sColor}" style="font-weight:700;">${sr.toFixed(4)}</td>
+                    <td class="${tr >= 0 ? 'text-green' : 'text-red'}">${tr >= 0 ? '+' : ''}${tr.toFixed(2)}%</td>
+                    <td class="text-red">${md.toFixed(2)}%</td>
                 </tr>`;
             });
             tableHtml += '</tbody>';
             $('weight-combos-table').innerHTML = tableHtml;
+        } else {
+            $('weight-combos-table').innerHTML = '<tbody><tr><td colspan="7" style="text-align:center;color:var(--text-dim);padding:20px;">回測引擎未產出排行資料</td></tr></tbody>';
         }
 
         setTimeout(() => {
