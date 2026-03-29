@@ -1,0 +1,397 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>🧠 決策引擎 — 多因子股票分析 | Life Budget Simulator</title>
+    <meta name="description" content="多因子評分系統 + 風險管理建議 + 熱門股掃描器。降低情緒交易，提升決策一致性。">
+    <link rel="icon" href="favicon.svg" type="image/svg+xml">
+    <link rel="stylesheet" href="css/scanner.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+</head>
+
+<body>
+    <div class="scanner-container">
+
+        <!-- Header -->
+        <div class="scanner-header">
+            <div class="scanner-nav-links">
+                <a href="index.html">← 返回主模擬器</a>
+                <a href="ghost.html">👻 幽靈模式</a>
+                <a href="scanner-guide.html" style="color:var(--scanner-secondary); font-weight:bold;">📑 判斷準則詳解</a>
+            </div>
+            <h1>🧠 決策引擎</h1>
+            <p>
+                多因子評分系統 × 風險管理建議 × 熱門股掃描器<br>
+                降低情緒交易，用可量化的分數取代「我覺得」。
+            </p>
+        </div>
+
+        <!-- Mode Tabs -->
+        <div class="scanner-tabs">
+            <button class="scanner-tab active" data-mode="analysis">📊 個股分析</button>
+            <button class="scanner-tab" data-mode="scanner">🔍 市場掃描器</button>
+            <button class="scanner-tab" data-mode="settings">⚙️ 策略設定</button>
+            <button class="scanner-tab" data-mode="research">🧪 專業研究</button>
+        </div>
+
+        <!-- ===================== TAB 1: INDIVIDUAL ANALYSIS ===================== -->
+        <div class="scanner-panel active" id="panel-analysis">
+            <div class="scanner-glass">
+                <h2>📊 個股多因子分析</h2>
+                <p style="color:var(--text-dim);margin-bottom:16px;">
+                    輸入台股代號（如 2330、0050），系統將計算趨勢、動能、籌碼、基本面、情緒五大因子分數。
+                </p>
+                <div class="analysis-input-row">
+                    <div class="form-group">
+                        <label class="form-label" for="analysis-symbol">股票代號</label>
+                        <input type="text" class="form-input" id="analysis-symbol" placeholder="例如 2330、0050、00878" value="2330">
+                    </div>
+                    <button class="btn btn-scanner" id="btn-analyze">🔍 開始分析</button>
+                </div>
+            </div>
+
+            <!-- Loading -->
+            <div class="scanner-loading" id="analysis-loading">
+                <div class="loading-spinner"></div>
+                <div class="loading-text">正在取得資料並計算因子分數...</div>
+            </div>
+
+            <!-- Analysis Results -->
+            <div class="scanner-results" id="analysis-results">
+
+                <!-- Stock Info + Score Ring -->
+                <div class="scanner-glass">
+                    <div class="analysis-result-header">
+                        <div id="result-stock-info"></div>
+                        <div style="text-align:center;">
+                            <div class="score-ring-container">
+                                <canvas id="score-ring-canvas"></canvas>
+                                <div class="score-ring-number">
+                                    <div class="number" id="score-ring-value">0</div>
+                                    <span class="unit">總分</span>
+                                </div>
+                            </div>
+                            <div id="result-classification"></div>
+                        </div>
+                    </div>
+
+                    <!-- Factor Score Cards -->
+                    <h3>📈 五大因子分數</h3>
+                    <div class="factor-grid" id="result-factors"></div>
+
+                    <!-- Radar Chart -->
+                    <div style="display:grid;grid-template-columns:1fr 1fr;gap:24px;align-items:start;">
+                        <div>
+                            <h3>🎯 因子雷達圖</h3>
+                            <div class="radar-container">
+                                <canvas id="radar-canvas"></canvas>
+                            </div>
+                        </div>
+                        <div>
+                            <h3>📋 交易策略建議</h3>
+                            <div class="advice-section" id="result-advice"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Key Indicators -->
+                <div class="scanner-glass">
+                    <h3>📊 技術指標儀表板</h3>
+                    <div class="indicator-grid" id="result-indicators"></div>
+                </div>
+
+                <!-- Key Prices -->
+                <div class="scanner-glass">
+                    <h3>🎯 關鍵價位（支撐 / 壓力 / 停損停利）</h3>
+                    <div class="key-prices-grid" id="result-keyprices"></div>
+                </div>
+
+                <!-- Price + MA Chart -->
+                <div class="scanner-glass">
+                    <h3>📈 股價走勢 + 均線 + 成交量</h3>
+                    <div class="scanner-chart-container">
+                        <canvas id="price-chart-canvas"></canvas>
+                    </div>
+                </div>
+
+                <div style="text-align:center;margin-top:20px;">
+                    <button class="btn btn-secondary" onclick="window.scrollTo({top:0,behavior:'smooth'})">⬆ 回到頂部</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- ===================== TAB 2: MARKET SCANNER ===================== -->
+        <div class="scanner-panel" id="panel-scanner">
+            <div class="scanner-glass">
+                <h2>🔍 市場掃描器</h2>
+                <p style="color:var(--text-dim);margin-bottom:16px;">
+                    一鍵掃描市場上的熱門股票，自動計算多因子分數並排行。可自訂股票池或使用預設（台灣前 30 大 ETF + 權值股）。
+                </p>
+                <div class="analysis-input-row" style="margin-bottom:16px;">
+                    <div class="form-group">
+                        <label class="form-label" for="scan-symbols">自訂股票池（選填，逗號分隔）</label>
+                        <input type="text" class="form-input" id="scan-symbols" placeholder="留空使用預設清單，或輸入如 2330,0050,00878,2317">
+                    </div>
+                    <button class="btn btn-scanner btn-scanner-cool" id="btn-scan">🔍 開始掃描</button>
+                </div>
+            </div>
+
+            <!-- Loading -->
+            <div class="scanner-loading" id="scan-loading">
+                <div class="loading-spinner"></div>
+                <div class="loading-text">正在掃描市場...</div>
+                <div class="loading-sub">批次取得多檔股票數據中</div>
+            </div>
+
+            <!-- Scanner Results -->
+            <div class="scanner-results" id="scan-results">
+                <div class="scanner-glass">
+                    <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px;margin-bottom:16px;">
+                        <h3 style="margin-bottom:0;">🏆 多因子排行榜 <span id="scan-count" style="font-size:0.85rem;color:var(--text-dim);font-weight:400;"></span></h3>
+                    </div>
+
+                    <!-- Category Filters -->
+                    <div class="category-filters">
+                        <button class="category-tag active" data-category="all">📋 全部</button>
+                        <button class="category-tag" data-category="trending">🔥 趨勢股</button>
+                        <button class="category-tag" data-category="strong">💪 綜合強勢</button>
+                        <button class="category-tag" data-category="consolidation">⏳ 盤整待突破</button>
+                        <button class="category-tag" data-category="weak-bounce">📉 弱勢反彈</button>
+                        <button class="category-tag" data-category="falling-knife">⚠️ 接刀風險</button>
+                    </div>
+
+                    <div class="scanner-table-wrap">
+                        <table class="scanner-rank-table" id="scan-table"></table>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ===================== TAB 3: STRATEGY SETTINGS ===================== -->
+        <div class="scanner-panel" id="panel-settings">
+            <div class="scanner-glass">
+                <h2>⚙️ 因子權重設定</h2>
+                <p style="color:var(--text-dim);margin-bottom:20px;">
+                    調整各因子在總分中的權重。權重越高代表你越重視該因子。
+                    調整完成後回到分析頁面重新分析即可套用。
+                </p>
+
+                <div class="weight-slider-group">
+                    <label>📈 趨勢 Trend <span class="weight-value">30%</span></label>
+                    <input type="range" class="weight-slider" data-factor="trend" min="0" max="100" value="30" step="5">
+                </div>
+                <div class="weight-slider-group">
+                    <label>⚡ 動能 Momentum <span class="weight-value">20%</span></label>
+                    <input type="range" class="weight-slider" data-factor="momentum" min="0" max="100" value="20" step="5">
+                </div>
+                <div class="weight-slider-group">
+                    <label>🏦 籌碼 Flow <span class="weight-value">20%</span></label>
+                    <input type="range" class="weight-slider" data-factor="flow" min="0" max="100" value="20" step="5">
+                </div>
+                <div class="weight-slider-group">
+                    <label>📊 基本面 Fundamental <span class="weight-value">20%</span></label>
+                    <input type="range" class="weight-slider" data-factor="fundamental" min="0" max="100" value="20" step="5">
+                </div>
+                <div class="weight-slider-group">
+                    <label>🎭 情緒 Sentiment <span class="weight-value">10%</span></label>
+                    <input type="range" class="weight-slider" data-factor="sentiment" min="0" max="100" value="10" step="5">
+                </div>
+
+                <div style="background:rgba(245,158,11,0.08);padding:14px;border-radius:8px;border-left:3px solid var(--scanner-primary);margin-top:16px;">
+                    <p style="color:var(--text-secondary);font-size:0.9rem;line-height:1.5;">
+                        💡 <strong>預設權重</strong>：趨勢 30% + 動能 20% + 籌碼 20% + 基本面 20% + 情緒 10% = 100%<br>
+                        注意：目前基本面與情緒分數為固定 50 分（中性），因為 Yahoo Finance API 無法提供這些數據。<br>
+                        未來可接 FinMind、TEJ 等資料源自動計算。
+                    </p>
+                </div>
+            </div>
+
+            <div class="scanner-glass">
+                <h2>🎯 進場 / 出場條件參考</h2>
+
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;">
+                    <!-- Entry conditions -->
+                    <div>
+                        <h3 style="color:var(--accent-green);">✅ 進場條件</h3>
+                        <div class="condition-list">
+                            <div class="condition-item">
+                                <input type="checkbox" checked disabled>
+                                <span>總分 ≥ 75</span>
+                            </div>
+                            <div class="condition-item">
+                                <input type="checkbox" checked disabled>
+                                <span>趨勢分數 ≥ 70</span>
+                            </div>
+                            <div class="condition-item">
+                                <input type="checkbox" checked disabled>
+                                <span>成交量 ≥ 20日均量 × 1.5倍</span>
+                            </div>
+                            <div class="condition-item">
+                                <input type="checkbox" checked disabled>
+                                <span>股價站上 MA20 且 MA20 走揚</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Exit conditions -->
+                    <div>
+                        <h3 style="color:var(--accent-red);">🛑 出場條件</h3>
+                        <div class="condition-list">
+                            <div class="condition-item">
+                                <input type="checkbox" checked disabled>
+                                <span>跌破 MA20</span>
+                            </div>
+                            <div class="condition-item">
+                                <input type="checkbox" checked disabled>
+                                <span>總分跌破 55</span>
+                            </div>
+                            <div class="condition-item">
+                                <input type="checkbox" checked disabled>
+                                <span>固定停損 -5%</span>
+                            </div>
+                            <div class="condition-item">
+                                <input type="checkbox" checked disabled>
+                                <span>分批停利 +10% / +15%</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="scanner-glass">
+                <h2>💼 倉位管理原則</h2>
+                <div class="condition-list">
+                    <div class="condition-item">
+                        <span>📌</span>
+                        <span>單股不超過總資產 <strong>10%</strong></span>
+                    </div>
+                    <div class="condition-item">
+                        <span>📌</span>
+                        <span>高波動股（ATR% > 3%）不超過 <strong>5%</strong></span>
+                    </div>
+                    <div class="condition-item">
+                        <span>📌</span>
+                        <span>題材股最多 <strong>2 檔</strong></span>
+                    </div>
+                    <div class="condition-item">
+                        <span>📌</span>
+                        <span>大盤風險高時整體持股上限 <strong>50%</strong></span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ===================== TAB 4: PROFESSIONAL RESEARCH ===================== -->
+        <div class="scanner-panel" id="panel-research">
+            <div class="scanner-glass">
+                <h2>🧪 專業多因子研究 (FinMind + VectorBT + Alphalens)</h2>
+                <p style="color:var(--text-dim);margin-bottom:16px;line-height:1.6;">
+                    使用 Python 量化引擎對台股進行大規模因子分析與權重掃描回測。<br>
+                    系統會自動找出「趨勢 / 動能 / 籌碼」的最佳權重組合，並產出 Sharpe Ratio、MDD 等專業指標。
+                </p>
+
+                <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:16px;">
+                    <div class="form-group">
+                        <label class="form-label" for="research-symbols">股票池（選填）</label>
+                        <input type="text" class="form-input" id="research-symbols" placeholder="留空使用預設 23 檔">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label" for="research-years">回測年數</label>
+                        <select class="form-input" id="research-years">
+                            <option value="1">1 年</option>
+                            <option value="2">2 年</option>
+                            <option value="3" selected>3 年</option>
+                            <option value="5">5 年</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label" for="research-token">FinMind Token（選填）</label>
+                        <input type="text" class="form-input" id="research-token" placeholder="留空使用免費額度">
+                    </div>
+                </div>
+
+                <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;">
+                    <button class="btn btn-scanner" id="btn-run-research">🚀 執行 Python 研究</button>
+                    <button class="btn btn-secondary" id="btn-load-results">📂 讀取已有結果</button>
+                    <span id="research-status" style="color:var(--text-dim);font-size:0.85rem;"></span>
+                </div>
+
+                <div class="note-box" style="margin-top:16px;">
+                    💻 <strong>先決條件</strong>：需要安裝 Python 依賴套件。在專案目錄執行：<br>
+                    <code style="background:rgba(0,0,0,0.3);padding:4px 8px;border-radius:4px;">pip install -r quant_research/requirements.txt</code>
+                </div>
+            </div>
+
+            <!-- Loading -->
+            <div class="scanner-loading" id="research-loading">
+                <div class="loading-spinner"></div>
+                <div class="loading-text">正在執行 Python 量化研究引擎...</div>
+                <div class="loading-sub">約需 1~5 分鐘，請勿關閉頁面</div>
+            </div>
+
+            <!-- Research Results -->
+            <div class="scanner-results" id="research-results">
+                <!-- Stats Cards -->
+                <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:24px;">
+                    <div class="scanner-glass" style="text-align:center;padding:20px;">
+                        <div style="color:var(--text-dim);font-size:0.8rem;margin-bottom:6px;">Sharpe Ratio</div>
+                        <div id="stat-sharpe" style="font-size:2rem;font-weight:800;font-family:var(--font-en);">-</div>
+                    </div>
+                    <div class="scanner-glass" style="text-align:center;padding:20px;">
+                        <div style="color:var(--text-dim);font-size:0.8rem;margin-bottom:6px;">總報酬率</div>
+                        <div id="stat-return" style="font-size:2rem;font-weight:800;font-family:var(--font-en);">-</div>
+                    </div>
+                    <div class="scanner-glass" style="text-align:center;padding:20px;">
+                        <div style="color:var(--text-dim);font-size:0.8rem;margin-bottom:6px;">最大回撒 (MDD)</div>
+                        <div id="stat-mdd" style="font-size:2rem;font-weight:800;font-family:var(--font-en);">-</div>
+                    </div>
+                    <div class="scanner-glass" style="text-align:center;padding:20px;">
+                        <div style="color:var(--text-dim);font-size:0.8rem;margin-bottom:6px;">研究股票數</div>
+                        <div id="stat-count" style="font-size:2rem;font-weight:800;font-family:var(--font-en);">-</div>
+                    </div>
+                </div>
+
+                <!-- Best Weights -->
+                <div class="scanner-glass">
+                    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
+                        <h3 style="margin-bottom:0;">🏆 最佳因子權重組合</h3>
+                        <button class="btn btn-scanner" id="btn-apply-weights" style="font-size:0.85rem;padding:8px 16px;">✅ 套用最佳權重到策略設定</button>
+                    </div>
+                    <div class="indicator-grid" id="best-weights-grid"></div>
+                    <p id="research-period-info" style="color:var(--text-dim);font-size:0.85rem;margin-top:12px;"></p>
+                </div>
+
+                <!-- Equity Curve -->
+                <div class="scanner-glass">
+                    <h3>📈 權益曲線 (Equity Curve)</h3>
+                    <div class="scanner-chart-container">
+                        <canvas id="equity-chart-canvas"></canvas>
+                    </div>
+                </div>
+
+                <!-- Factor IC -->
+                <div class="scanner-glass">
+                    <h3>📊 因子預測力 (Information Coefficient)</h3>
+                    <p style="color:var(--text-dim);font-size:0.85rem;margin-bottom:12px;">IC 值越高，代表該因子對未來報酬的預測能力越強。一般認為 IC > 0.03 即具有參考價值。</p>
+                    <div class="indicator-grid" id="factor-ic-grid"></div>
+                </div>
+
+                <!-- Top 10 Weight Combos -->
+                <div class="scanner-glass">
+                    <h3>🔜 Top 10 權重組合排行</h3>
+                    <div class="scanner-table-wrap">
+                        <table class="scanner-rank-table" id="weight-combos-table"></table>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+    </div>
+
+    <script src="js/scanner-engine.js"></script>
+    <script src="js/scanner-ui.js"></script>
+</body>
+
+</html>

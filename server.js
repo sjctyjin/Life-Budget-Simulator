@@ -346,6 +346,200 @@ function fetchJSON(url) {
     });
 }
 
+// ==================== 決策引擎 API ====================
+
+// Default scanner stock list (top TW ETFs + blue chips)
+const DEFAULT_SCAN_LIST = [
+    '0050', '0056', '00878', '00919', '00929', '00940',
+    '006208', '00713', '00850', '00692',
+    '2330', '2317', '2454', '2308', '2881', '2882',
+    '2891', '2303', '3711', '2412',
+    '2886', '2884', '1301', '1303', '2002', '2105',
+    '3008', '2345', '6505', '1216'
+];
+
+// Analysis endpoint — returns daily OHLCV for technical analysis
+app.get('/api/stock/:symbol/analysis', async (req, res) => {
+    let symbol = req.params.symbol.toUpperCase().trim();
+    const months = parseInt(req.query.months) || 12;
+
+    const isTaiwanCode = /^\d{4,6}[A-Z]*$/.test(symbol);
+    if (isTaiwanCode) symbol = symbol + '.TW';
+
+    try {
+        let data = await fetchAnalysisData(symbol, months);
+
+        // Fallback for OTC
+        if (!data && isTaiwanCode) {
+            const altSymbol = symbol.replace('.TW', '.TWO');
+            data = await fetchAnalysisData(altSymbol, months);
+            if (data) symbol = altSymbol;
+        }
+
+        if (!data) {
+            return res.status(404).json({ error: `找不到 ${symbol} 的技術分析資料` });
+        }
+
+        res.json(data);
+    } catch (err) {
+        console.error(`Error fetching analysis for ${symbol}:`, err.message);
+        res.status(500).json({ error: '無法取得技術分析資料', details: err.message });
+    }
+});
+
+async function fetchAnalysisData(symbol, months) {
+    // Fetch daily data for the requested period 
+    const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?interval=1d&range=${months}mo&events=div`;
+    const data = await fetchJSON(url);
+
+    if (!data || !data.chart || !data.chart.result || data.chart.result.length === 0) {
+        return null;
+    }
+
+    const result = data.chart.result[0];
+    const meta = result.meta;
+    const timestamps = result.timestamp || [];
+    const quotes = result.indicators?.quote?.[0] || {};
+    const opens = quotes.open || [];
+    const highs = quotes.high || [];
+    const lows = quotes.low || [];
+    const closes = quotes.close || [];
+    const volumes = quotes.volume || [];
+
+    // Build daily OHLCV array
+    const days = [];
+    for (let i = 0; i < timestamps.length; i++) {
+        if (closes[i] == null || opens[i] == null) continue;
+        const d = new Date(timestamps[i] * 1000);
+        days.push({
+            date: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`,
+            open: Math.round(opens[i] * 100) / 100,
+            high: Math.round(highs[i] * 100) / 100,
+            low: Math.round(lows[i] * 100) / 100,
+            close: Math.round(closes[i] * 100) / 100,
+            volume: volumes[i] || 0,
+        });
+    }
+
+    return {
+        symbol,
+        shortName: meta.shortName || symbol,
+        currency: meta.currency || 'TWD',
+        currentPrice: meta.regularMarketPrice || 0,
+        previousClose: meta.previousClose || meta.chartPreviousClose || 0,
+        exchangeName: meta.exchangeName || '',
+        days,
+        dataMonths: months,
+    };
+}
+
+// Scanner endpoint — batch scan multiple symbols
+app.get('/api/scanner/top', async (req, res) => {
+    const symbolsParam = req.query.symbols;
+    const symbolList = symbolsParam
+        ? symbolsParam.split(',').map(s => s.trim().toUpperCase()).filter(Boolean)
+        : DEFAULT_SCAN_LIST;
+
+    try {
+        // Process in parallel with concurrency limit
+        const batchSize = 5;
+        const results = [];
+
+        for (let i = 0; i < symbolList.length; i += batchSize) {
+            const batch = symbolList.slice(i, i + batchSize);
+            const batchResults = await Promise.allSettled(
+                batch.map(async (sym) => {
+                    try {
+                        let symbol = sym;
+                        const isTW = /^\d{4,6}[A-Z]*$/.test(symbol);
+                        if (isTW) symbol = symbol + '.TW';
+
+                        let data = await fetchAnalysisData(symbol, 6);
+                        if (!data && isTW) {
+                            const altSymbol = symbol.replace('.TW', '.TWO');
+                            data = await fetchAnalysisData(altSymbol, 6);
+                        }
+                        return data ? { originalSymbol: sym, ...data } : null;
+                    } catch {
+                        return null;
+                    }
+                })
+            );
+            for (const r of batchResults) {
+                if (r.status === 'fulfilled' && r.value) {
+                    results.push(r.value);
+                }
+            }
+        }
+
+        res.json({ stocks: results, scannedAt: new Date().toISOString() });
+    } catch (err) {
+        console.error('Scanner error:', err.message);
+        res.status(500).json({ error: '掃描失敗', details: err.message });
+    }
+});
+
+// ==================== 專業研究橋接 API ====================
+const { execFile } = require('child_process');
+const QUANT_DIR = path.join(__dirname, 'quant_research');
+const QUANT_RESULTS = path.join(QUANT_DIR, 'quant_results.json');
+
+// Read research results
+app.get('/api/quant/results', (req, res) => {
+    const fs = require('fs');
+    try {
+        if (!fs.existsSync(QUANT_RESULTS)) {
+            return res.json({
+                exists: false,
+                message: '尚未執行研究。請先在「🧪 專業研究」分頁點擊執行，或在終端機執行 python quant_research/research_engine.py',
+            });
+        }
+        const raw = fs.readFileSync(QUANT_RESULTS, 'utf-8');
+        const data = JSON.parse(raw);
+        res.json({ exists: true, ...data });
+    } catch (err) {
+        res.status(500).json({ error: '讀取研究結果失敗', details: err.message });
+    }
+});
+
+// Trigger Python research (async, returns immediately)
+let researchRunning = false;
+app.post('/api/quant/run-research', express.json(), (req, res) => {
+    if (researchRunning) {
+        return res.status(409).json({ error: '研究正在執行中，請稍後...' });
+    }
+
+    const symbols = req.body?.symbols || '';
+    const years = req.body?.years || 3;
+    const token = req.body?.token || '';
+
+    const args = ['research_engine.py'];
+    if (symbols) args.push('--symbols', symbols);
+    if (years) args.push('--years', String(years));
+    if (token) args.push('--token', token);
+
+    researchRunning = true;
+    console.log(`\n🧠 啟動 Python 研究引擎: python ${args.join(' ')}`);
+
+    const child = execFile('python', args, { cwd: QUANT_DIR, timeout: 600000 }, (err, stdout, stderr) => {
+        researchRunning = false;
+        if (err) {
+            console.error('❌ Python 研究失敗:', err.message);
+            console.error(stderr);
+        } else {
+            console.log('✅ Python 研究完成');
+            console.log(stdout);
+        }
+    });
+
+    res.json({ status: 'started', message: '研究已啟動，請稍後查看結果（約需 1~5 分鐘）' });
+});
+
+// Check research status
+app.get('/api/quant/status', (req, res) => {
+    res.json({ running: researchRunning });
+});
+
 app.listen(PORT, () => {
     console.log(`\n🚀 Life Budget Simulator 伺服器已啟動`);
     console.log(`   http://localhost:${PORT}\n`);
