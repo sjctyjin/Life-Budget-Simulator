@@ -1,0 +1,11 @@
+# 忽略虛擬環境資料夾
+venv/
+venv310/
+quant_research/venv310/
+
+# 忽略所有 DLL 檔案
+*.dll
+
+# 忽略 Python 快取
+__pycache__/
+*.pyc
