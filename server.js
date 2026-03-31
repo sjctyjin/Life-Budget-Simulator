@@ -105,8 +105,8 @@ function processBacktestData(res, data, symbol) {
     let splits = Object.values(splitData).map(s => {
         const d = new Date(s.date * 1000);
         return {
-            date: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`,
-            yearMonth: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`,
+            date: `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`,
+            yearMonth: `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`,
             ratio: s.numerator / s.denominator,
             numerator: s.numerator,
             denominator: s.denominator,
@@ -152,10 +152,10 @@ function processBacktestData(res, data, symbol) {
     const shortName = meta.shortName || symbol;
     const currentPrice = meta.regularMarketPrice || 0;
 
-    // Build monthly price array
+    // Build monthly price array (deduplicated by year-month, keep LAST entry per month)
     // Yahoo returns split-adjusted historical prices. We must reverse this adjustment 
     // so the backtest engine uses the REAL ticker-tape historical prices for its buy calculations.
-    const months = [];
+    const monthsMap = new Map();
     for (let i = 0; i < timestamps.length; i++) {
         if (closes[i] == null) continue;
         const d = new Date(timestamps[i] * 1000);
@@ -168,16 +168,21 @@ function processBacktestData(res, data, symbol) {
             }
         }
         const unadjustedClose = closes[i] * multiplier;
+        // CRITICAL: Use UTC methods! Yahoo timestamps are end-of-month UTC (e.g., May 31 16:00 UTC)
+        // which becomes Jun 1 00:00 in UTC+8, shifting month labels forward by 1 if using local time.
+        const yearMonth = `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`;
 
-        months.push({
-            date: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`,
-            year: d.getFullYear(),
-            month: d.getMonth() + 1,
+        // Overwrite: keep only the LAST data point per month (Yahoo sometimes returns duplicates)
+        monthsMap.set(yearMonth, {
+            date: yearMonth,
+            year: d.getUTCFullYear(),
+            month: d.getUTCMonth() + 1,
             close: Math.round(unadjustedClose * 100) / 100, // True historical price
             adjustedClose: closes[i], // Original adjusted price from Yahoo
             timestamp: timestamps[i],
         });
     }
+    const months = Array.from(monthsMap.values());
 
     // Build dividend array and unadjust the amounts 
     // Yahoo returns split-adjusted dividends, so we multiply by all future splits to get the actual historical cash payout
@@ -194,10 +199,10 @@ function processBacktestData(res, data, symbol) {
         const unadjustedAmount = div.amount * multiplier;
 
         return {
-            date: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`,
-            yearMonth: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`,
-            year: d.getFullYear(),
-            month: d.getMonth() + 1,
+            date: `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`,
+            yearMonth: `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`,
+            year: d.getUTCFullYear(),
+            month: d.getUTCMonth() + 1,
             amount: Math.round(unadjustedAmount * 10000) / 10000, // Now represents unadjusted (real) cash div
             adjustedAmount: div.amount, // Original from Yahoo
             timestamp: div.date,

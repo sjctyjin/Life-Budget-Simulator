@@ -138,6 +138,11 @@ class GhostBacktest {
             yearlyDetails[year].endShares = totalShares;
             yearlyDetails[year].endValue = currentValue;
             yearlyDetails[year].endPrice = price;
+            // Track per-share dividends for yield calculation
+            if (divAmount && divAmount > 0) {
+                if (!yearlyDetails[year].totalDivPerShare) yearlyDetails[year].totalDivPerShare = 0;
+                yearlyDetails[year].totalDivPerShare += divAmount;
+            }
         }
 
         // Use current market price for final valuation
@@ -169,6 +174,7 @@ class GhostBacktest {
                 stockDividendShares: Math.round(y.stockDividendShares * 10000) / 10000,
                 endShares: Math.round(y.endShares * 10000) / 10000,
                 endValue: Math.round(y.endValue),
+                annualYield: y.endPrice > 0 && y.totalDivPerShare ? Math.round((y.totalDivPerShare / y.endPrice) * 10000) / 100 : 0,
             }));
 
         return {
@@ -326,6 +332,8 @@ class GhostBacktest {
                     shares: Math.round(entitledShares * 100) / 100,
                     total: Math.round(divAmount),
                     reinvestedShares,
+                    price: price,
+                    dividendYield: price > 0 ? Math.round((de.amount / price) * 10000) / 100 : 0, // e.g. 5.23%
                 });
             }
 
@@ -339,6 +347,7 @@ class GhostBacktest {
                 marketValue: Math.round(marketValue),
                 dividendThisMonth: Math.round(monthDiv),
                 totalDividends: Math.round(totalDividendsCash),
+                totalDividendsReinvested: Math.round(totalDividendsReinvested),
                 totalReturn: Math.round(marketValue + totalDividendsCash),
                 gainPct: totalInvested > 0 ? ((marketValue - totalInvested) / totalInvested * 100) : 0,
             });
@@ -380,6 +389,17 @@ class GhostBacktest {
             yearlyDividends[year].events.push(dh);
         }
 
+        // Calculate annual yield for each year
+        const yearlyDivArray = Object.values(yearlyDividends).sort((a, b) => a.year.localeCompare(b.year));
+        for (const yd of yearlyDivArray) {
+            // Sum per-share dividends for the year
+            const totalPerShare = yd.events.reduce((sum, e) => sum + (e.perShare || 0), 0);
+            // Use average price of dividend events for yield, or last event price
+            const avgPrice = yd.events.length > 0 ? yd.events.reduce((sum, e) => sum + (e.price || 0), 0) / yd.events.length : 0;
+            yd.annualYield = avgPrice > 0 ? Math.round((totalPerShare / avgPrice) * 10000) / 100 : 0; // e.g. 7.5%
+            yd.totalPerShare = Math.round(totalPerShare * 100) / 100;
+        }
+
         return {
             buyDate: buyMonth.date,
             buyPrice,
@@ -399,7 +419,7 @@ class GhostBacktest {
             holdingDays,
             holdingYears,
             dividendHistory,
-            yearlyDividends: Object.values(yearlyDividends).sort((a, b) => a.year.localeCompare(b.year)),
+            yearlyDividends: yearlyDivArray,
             monthlyDetails,
             currency: currency || 'TWD',
             cashflows,

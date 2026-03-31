@@ -325,6 +325,13 @@
                 const roiColor = result.roi >= 0 ? 'var(--accent-green)' : 'var(--accent-red)';
                 const irrColor = result.irr >= 0.05 ? 'var(--accent-green)' : result.irr >= 0 ? 'var(--accent-yellow)' : 'var(--accent-red)';
 
+                const totalDivAll = result.totalDividendsCash + (result.totalDividendsReinvested || 0);
+                const yrs = result.years || 1;
+                const costYield = result.totalInvested > 0 ? (totalDivAll / result.totalInvested / yrs * 100) : 0;
+                const mktYield = result.finalMarketValue > 0 ? (totalDivAll / result.finalMarketValue / yrs * 100) : 0;
+                const costYieldColor = costYield >= 5 ? 'var(--accent-green)' : costYield > 0 ? 'var(--accent-yellow)' : 'var(--text-dim)';
+                const mktYieldColor = mktYield >= 5 ? 'var(--accent-green)' : mktYield > 0 ? 'var(--accent-yellow)' : 'var(--text-dim)';
+
                 $('ghost-summary-cards').innerHTML = `
                     <div class="ghost-stat-card">
                         <div class="stat-icon">💰</div>
@@ -338,8 +345,18 @@
                     </div>
                     <div class="ghost-stat-card">
                         <div class="stat-icon">🎁</div>
-                        <div class="stat-value" style="color:var(--accent-purple)">NT$ ${fmtCur(result.totalDividendsCash)}</div>
-                        <div class="stat-label">組合累計配息現金</div>
+                        <div class="stat-value" style="color:var(--accent-purple)">NT$ ${fmtCur(totalDivAll)}</div>
+                        <div class="stat-label">組合累計配息 (現金+再投入)</div>
+                    </div>
+                    <div class="ghost-stat-card">
+                        <div class="stat-icon">🌱</div>
+                        <div class="stat-value" style="color:${costYieldColor}">${costYield.toFixed(2)}%</div>
+                        <div class="stat-label">年均成本殖利率 (配息/投入/年)</div>
+                    </div>
+                    <div class="ghost-stat-card">
+                        <div class="stat-icon">🎯</div>
+                        <div class="stat-value" style="color:${mktYieldColor}">${mktYield.toFixed(2)}%</div>
+                        <div class="stat-label">年均市值殖利率 (配息/市值/年)</div>
                     </div>
                     <div class="ghost-stat-card">
                         <div class="stat-icon">📈</div>
@@ -432,12 +449,13 @@
             }
 
             function renderYearlyTable(yearlyDetails) {
-                let html = `<thead><tr><th>年份</th><th>年投入</th><th>買入股數</th><th>配息金額</th><th>再投入股數</th><th>配股股數</th><th>年末累計股數</th><th>年末收盤價</th><th>年末市值</th><th>未實現損益</th></tr></thead><tbody>`;
+                let html = `<thead><tr><th>年份</th><th>年投入</th><th>買入股數</th><th>配息金額</th><th>殖利率</th><th>再投入股數</th><th>配股股數</th><th>年末累計股數</th><th>年末收盤價</th><th>年末市值</th><th>未實現損益</th></tr></thead><tbody>`;
                 let cum = 0;
                 for (const y of yearlyDetails) {
                     cum += y.invested;
                     const gain = y.endValue - cum;
-                    html += `<tr><td>${y.year}</td><td>NT$ ${fmtCur(y.invested)}</td><td>${y.sharesBought}</td><td class="${y.dividends > 0 ? 'text-purple' : ''}">${y.dividends > 0 ? 'NT$ ' + fmtCur(y.dividends) : '-'}</td><td>${y.dividendShares > 0 ? y.dividendShares : '-'}</td><td class="${y.stockDividendShares > 0 ? 'text-cyan' : ''}">${y.stockDividendShares > 0 ? y.stockDividendShares : '-'}</td><td>${y.endShares}</td><td>${y.endPrice}</td><td class="text-cyan">NT$ ${fmtCur(y.endValue)}</td><td class="${gain >= 0 ? 'text-green' : 'text-red'}">${gain >= 0 ? '+' : ''}NT$ ${fmtCur(gain)}</td></tr>`;
+                    const yieldColor = y.annualYield >= 5 ? 'text-green' : y.annualYield > 0 ? 'text-yellow' : '';
+                    html += `<tr><td>${y.year}</td><td>NT$ ${fmtCur(y.invested)}</td><td>${y.sharesBought}</td><td class="${y.dividends > 0 ? 'text-purple' : ''}">${y.dividends > 0 ? 'NT$ ' + fmtCur(y.dividends) : '-'}</td><td class="${yieldColor}">${y.annualYield > 0 ? y.annualYield.toFixed(2) + '%' : '-'}</td><td>${y.dividendShares > 0 ? y.dividendShares : '-'}</td><td class="${y.stockDividendShares > 0 ? 'text-cyan' : ''}">${y.stockDividendShares > 0 ? y.stockDividendShares : '-'}</td><td>${y.endShares}</td><td>${y.endPrice}</td><td class="text-cyan">NT$ ${fmtCur(y.endValue)}</td><td class="${gain >= 0 ? 'text-green' : 'text-red'}">${gain >= 0 ? '+' : ''}NT$ ${fmtCur(gain)}</td></tr>`;
                 }
                 html += '</tbody>';
                 $('ghost-yearly-detail').innerHTML = html;
@@ -542,6 +560,13 @@
                 const irrColor = result.irr >= 0.05 ? 'var(--accent-green)' : result.irr >= 0 ? 'var(--accent-yellow)' : 'var(--accent-red)';
                 const priceColor = result.priceGain >= 0 ? 'var(--accent-green)' : 'var(--accent-red)';
 
+                const totalDivBH = result.totalDividendsCash + (result.totalDividendsReinvested || 0);
+                const yrsBH = result.holdingYears || 1;
+                const costYieldBH = result.totalInvested > 0 ? (totalDivBH / result.totalInvested / yrsBH * 100) : 0;
+                const mktYieldBH = result.finalMarketValue > 0 ? (totalDivBH / result.finalMarketValue / yrsBH * 100) : 0;
+                const costYieldBHColor = costYieldBH >= 5 ? 'var(--accent-green)' : costYieldBH > 0 ? 'var(--accent-yellow)' : 'var(--text-dim)';
+                const mktYieldBHColor = mktYieldBH >= 5 ? 'var(--accent-green)' : mktYieldBH > 0 ? 'var(--accent-yellow)' : 'var(--text-dim)';
+
                 $('bh-summary-cards').innerHTML = `
                     <div class="ghost-stat-card">
                         <div class="stat-icon">🛒</div>
@@ -555,8 +580,18 @@
                     </div>
                     <div class="ghost-stat-card">
                         <div class="stat-icon">🎁</div>
-                        <div class="stat-value" style="color:var(--accent-purple)">NT$ ${fmtCur(result.totalDividendsCash + (result.totalDividendsReinvested || 0))}</div>
-                        <div class="stat-label">總配息 (現金/再投入)</div>
+                        <div class="stat-value" style="color:var(--accent-purple)">NT$ ${fmtCur(totalDivBH)}</div>
+                        <div class="stat-label">總配息 (現金+再投入)</div>
+                    </div>
+                    <div class="ghost-stat-card">
+                        <div class="stat-icon">🌱</div>
+                        <div class="stat-value" style="color:${costYieldBHColor}">${costYieldBH.toFixed(2)}%</div>
+                        <div class="stat-label">年均成本殖利率 (配息/成本/年)</div>
+                    </div>
+                    <div class="ghost-stat-card">
+                        <div class="stat-icon">🎯</div>
+                        <div class="stat-value" style="color:${mktYieldBHColor}">${mktYieldBH.toFixed(2)}%</div>
+                        <div class="stat-label">年均市值殖利率 (配息/市值/年)</div>
                     </div>
                     <div class="ghost-stat-card">
                         <div class="stat-icon">💎</div>
@@ -659,29 +694,36 @@
             }
 
             function renderBHDividendTable(result) {
-                let html = `<thead><tr><th>年份</th><th>配息總次數</th><th>年度總配息合計</th><th>配息明細</th></tr></thead><tbody>`;
+                let html = `<thead><tr><th>年份</th><th>配息次數</th><th>年度總配息</th><th>年度殖利率</th><th>配息明細 (含當次殖利率)</th></tr></thead><tbody>`;
 
                 if (!result.yearlyDividends || result.yearlyDividends.length === 0) {
-                    html += '<tr><td colspan="4" style="text-align:center;color:var(--text-dim);">持有期間無配息紀錄</td></tr>';
+                    html += '<tr><td colspan="5" style="text-align:center;color:var(--text-dim);">持有期間無配息紀錄</td></tr>';
                 } else {
                     let grandTotal = 0;
+                    let avgYieldSum = 0;
+                    let yieldCount = 0;
                     for (const y of result.yearlyDividends) {
                         grandTotal += y.total;
+                        if (y.annualYield > 0) { avgYieldSum += y.annualYield; yieldCount++; }
+                        const yieldColor = y.annualYield >= 5 ? 'text-green' : y.annualYield > 0 ? 'text-yellow' : '';
                         // For portfolio aggregated events, we have a symbol field
                         const details = (y.events || []).map(e => {
                             const symPrefix = e.symbol ? `<span style="color:var(--accent-purple);font-weight:bold;">[${e.symbol}]</span> ` : '';
                             const drText = e.reinvestedShares ? ` <span class="text-green">(股息再投入 +${e.reinvestedShares.toFixed(2)} 股)</span>` : '';
-                            return `${symPrefix}${e.date} (${e.perShare}元/股 × ${e.shares}股 → NT$${fmtCur(e.total)})${drText}`;
+                            const yieldTag = e.dividendYield ? ` <span style="color:#f59e0b;">[殖利率 ${e.dividendYield.toFixed(2)}%]</span>` : '';
+                            return `${symPrefix}${e.date} (${e.perShare}元/股 × ${e.shares}股 → NT$${fmtCur(e.total)})${yieldTag}${drText}`;
                         }).join('<br>');
                         
                         html += `<tr>
                             <td>${y.year}</td>
                             <td>${y.count} 次</td>
                             <td class="text-purple">NT$ ${fmtCur(y.total)}</td>
+                            <td class="${yieldColor}" style="font-weight:700;">${y.annualYield > 0 ? y.annualYield.toFixed(2) + '%' : '-'}</td>
                             <td style="text-align:left;font-size:0.8rem;white-space:normal;line-height:1.4;">${details}</td>
                         </tr>`;
                     }
-                    html += `<tr class="highlight-row"><td>合計</td><td>${result.dividendHistory ? result.dividendHistory.length : '-'} 次</td><td class="text-purple" style="font-weight:700;">NT$ ${fmtCur(grandTotal)}</td><td></td></tr>`;
+                    const avgYield = yieldCount > 0 ? (avgYieldSum / yieldCount) : 0;
+                    html += `<tr class="highlight-row"><td>合計</td><td>${result.dividendHistory ? result.dividendHistory.length : '-'} 次</td><td class="text-purple" style="font-weight:700;">NT$ ${fmtCur(grandTotal)}</td><td class="text-green" style="font-weight:700;">${avgYield > 0 ? '平均 ' + avgYield.toFixed(2) + '%' : '-'}</td><td></td></tr>`;
                 }
 
                 html += '</tbody>';
