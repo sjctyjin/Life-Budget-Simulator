@@ -283,24 +283,71 @@ async function fetchStockData(symbol) {
     }
 
     // Process Dividends over the trailing 1 year
-    const dividendMonths = {};
-    const dividendAmounts = {}; // per-share amount by month
+    let dividendMonths = {};
+    let dividendAmounts = {}; // per-share amount by month
     let ttmDividend = 0;
+
     if (dividends && currentPrice > 0) {
-        Object.values(dividends).forEach(div => {
+        // Collect all dividends within the last 1 year
+        const divArray = Object.values(dividends).sort((a, b) => a.date - b.date);
+
+        divArray.forEach(div => {
             const date = new Date(div.date * 1000);
             const month = date.getMonth() + 1; // 1-12
-            ttmDividend += div.amount;
-
-            // Calculate yield share for this specific month
-            const yieldShare = div.amount / currentPrice;
-            if (dividendMonths[month]) {
-                dividendMonths[month] += yieldShare;
+            
+            if (dividendAmounts[month]) {
                 dividendAmounts[month] += div.amount;
             } else {
-                dividendMonths[month] = yieldShare;
                 dividendAmounts[month] = div.amount;
             }
+        });
+
+        // --- EXTRAPOLATION FOR NEW ETFS ---
+        const knownMonths = Object.keys(dividendAmounts);
+        if (knownMonths.length > 0 && knownMonths.length < 10) {
+            let freq = '';
+            
+            // Auto-detect based on payment intervals
+            if (divArray.length >= 2) {
+                let totalDays = 0;
+                for (let i = 1; i < divArray.length; i++) {
+                    totalDays += (divArray[i].date - divArray[i - 1].date) / (60 * 60 * 24);
+                }
+                const avgDays = totalDays / (divArray.length - 1);
+                
+                if (avgDays >= 20 && avgDays <= 40) freq = 'MONTHLY';
+                else if (avgDays >= 75 && avgDays <= 105) freq = 'QUARTERLY';
+            } 
+            
+            // Fallback: check ETF shortName for clues if only 1 payment was made
+            if (freq === '' && shortName && (shortName.includes('月配') || shortName.includes('月配息'))) {
+                freq = 'MONTHLY';
+            }
+
+            // Extrapolate missing payments using the average of known payments
+            if (freq === 'MONTHLY' && knownMonths.length < 12) {
+                const avgPayout = divArray.reduce((acc, d) => acc + d.amount, 0) / divArray.length;
+                for (let m = 1; m <= 12; m++) {
+                    if (!dividendAmounts[m]) dividendAmounts[m] = avgPayout;
+                }
+            } else if (freq === 'QUARTERLY' && knownMonths.length < 4) {
+                const avgPayout = divArray.reduce((acc, d) => acc + d.amount, 0) / divArray.length;
+                const lastM = new Date(divArray[divArray.length - 1].date * 1000).getMonth() + 1;
+                
+                // Project forward and backward by 3 months
+                for (let m = lastM; m <= 12; m += 3) {
+                    if (!dividendAmounts[m]) dividendAmounts[m] = avgPayout;
+                }
+                for (let m = lastM - 3; m >= 1; m -= 3) {
+                    if (!dividendAmounts[m]) dividendAmounts[m] = avgPayout;
+                }
+            }
+        }
+
+        // Finalize TTMDividend and Yield
+        Object.keys(dividendAmounts).forEach(m => {
+            ttmDividend += dividendAmounts[m];
+            dividendMonths[m] = dividendAmounts[m] / currentPrice;
         });
     }
 

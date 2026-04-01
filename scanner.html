@@ -46,7 +46,8 @@
                 <div class="analysis-input-row">
                     <div class="form-group">
                         <label class="form-label" for="analysis-symbol">股票代號</label>
-                        <input type="text" class="form-input" id="analysis-symbol" placeholder="例如 2330、0050、00878" value="2330">
+                        <input type="text" class="form-input" id="analysis-symbol" placeholder="例如 2330、0050、00878"
+                            value="2330">
                     </div>
                     <button class="btn btn-scanner" id="btn-analyze">🔍 開始分析</button>
                 </div>
@@ -117,7 +118,8 @@
                 </div>
 
                 <div style="text-align:center;margin-top:20px;">
-                    <button class="btn btn-secondary" onclick="window.scrollTo({top:0,behavior:'smooth'})">⬆ 回到頂部</button>
+                    <button class="btn btn-secondary" onclick="window.scrollTo({top:0,behavior:'smooth'})">⬆
+                        回到頂部</button>
                 </div>
             </div>
         </div>
@@ -132,7 +134,8 @@
                 <div class="analysis-input-row" style="margin-bottom:16px;">
                     <div class="form-group">
                         <label class="form-label" for="scan-symbols">自訂股票池（選填，逗號分隔）</label>
-                        <input type="text" class="form-input" id="scan-symbols" placeholder="留空使用預設清單，或輸入如 2330,0050,00878,2317">
+                        <input type="text" class="form-input" id="scan-symbols"
+                            placeholder="留空使用預設清單，或輸入如 2330,0050,00878,2317">
                     </div>
                     <button class="btn btn-scanner btn-scanner-cool" id="btn-scan">🔍 開始掃描</button>
                 </div>
@@ -148,8 +151,10 @@
             <!-- Scanner Results -->
             <div class="scanner-results" id="scan-results">
                 <div class="scanner-glass">
-                    <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px;margin-bottom:16px;">
-                        <h3 style="margin-bottom:0;">🏆 多因子排行榜 <span id="scan-count" style="font-size:0.85rem;color:var(--text-dim);font-weight:400;"></span></h3>
+                    <div
+                        style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px;margin-bottom:16px;">
+                        <h3 style="margin-bottom:0;">🏆 多因子排行榜 <span id="scan-count"
+                                style="font-size:0.85rem;color:var(--text-dim);font-weight:400;"></span></h3>
                     </div>
 
                     <!-- Category Filters -->
@@ -184,7 +189,8 @@
                 </div>
                 <div class="weight-slider-group">
                     <label>⚡ 動能 Momentum <span class="weight-value">20%</span></label>
-                    <input type="range" class="weight-slider" data-factor="momentum" min="0" max="100" value="20" step="5">
+                    <input type="range" class="weight-slider" data-factor="momentum" min="0" max="100" value="20"
+                        step="5">
                 </div>
                 <div class="weight-slider-group">
                     <label>🏦 籌碼 Flow <span class="weight-value">20%</span></label>
@@ -192,14 +198,17 @@
                 </div>
                 <div class="weight-slider-group">
                     <label>📊 基本面 Fundamental <span class="weight-value">20%</span></label>
-                    <input type="range" class="weight-slider" data-factor="fundamental" min="0" max="100" value="20" step="5">
+                    <input type="range" class="weight-slider" data-factor="fundamental" min="0" max="100" value="20"
+                        step="5">
                 </div>
                 <div class="weight-slider-group">
                     <label>🎭 情緒 Sentiment <span class="weight-value">10%</span></label>
-                    <input type="range" class="weight-slider" data-factor="sentiment" min="0" max="100" value="10" step="5">
+                    <input type="range" class="weight-slider" data-factor="sentiment" min="0" max="100" value="10"
+                        step="5">
                 </div>
 
-                <div style="background:rgba(245,158,11,0.08);padding:14px;border-radius:8px;border-left:3px solid var(--scanner-primary);margin-top:16px;">
+                <div
+                    style="background:rgba(245,158,11,0.08);padding:14px;border-radius:8px;border-left:3px solid var(--scanner-primary);margin-top:16px;">
                     <p style="color:var(--text-secondary);font-size:0.9rem;line-height:1.5;">
                         💡 <strong>預設權重</strong>：趨勢 30% + 動能 20% + 籌碼 20% + 基本面 20% + 情緒 10% = 100%<br>
                         注意：目前基本面與情緒分數為固定 50 分（中性），因為 Yahoo Finance API 無法提供這些數據。<br>
@@ -320,7 +329,8 @@
 
                 <div class="note-box" style="margin-top:16px;">
                     💻 <strong>先決條件</strong>：需要安裝 Python 依賴套件。在專案目錄執行：<br>
-                    <code style="background:rgba(0,0,0,0.3);padding:4px 8px;border-radius:4px;">pip install -r quant_research/requirements.txt</code>
+                    <code
+                        style="background:rgba(0,0,0,0.3);padding:4px 8px;border-radius:4px;">pip install -r quant_research/requirements.txt</code>
                 </div>
             </div>
 
@@ -357,7 +367,8 @@
                 <div class="scanner-glass">
                     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
                         <h3 style="margin-bottom:0;">🏆 最佳因子權重組合</h3>
-                        <button class="btn btn-scanner" id="btn-apply-weights" style="font-size:0.85rem;padding:8px 16px;">✅ 套用最佳權重到策略設定</button>
+                        <button class="btn btn-scanner" id="btn-apply-weights"
+                            style="font-size:0.85rem;padding:8px 16px;">✅ 套用最佳權重到策略設定</button>
                     </div>
                     <div class="indicator-grid" id="best-weights-grid"></div>
                     <p id="research-period-info" style="color:var(--text-dim);font-size:0.85rem;margin-top:12px;"></p>
@@ -374,7 +385,8 @@
                 <!-- Factor IC -->
                 <div class="scanner-glass">
                     <h3>📊 因子預測力 (Information Coefficient)</h3>
-                    <p style="color:var(--text-dim);font-size:0.85rem;margin-bottom:12px;">IC 值越高，代表該因子對未來報酬的預測能力越強。一般認為 IC > 0.03 即具有參考價值。</p>
+                    <p style="color:var(--text-dim);font-size:0.85rem;margin-bottom:12px;">IC 值越高，代表該因子對未來報酬的預測能力越強。一般認為
+                        IC > 0.03 即具有參考價值。</p>
                     <div class="indicator-grid" id="factor-ic-grid"></div>
                 </div>
 

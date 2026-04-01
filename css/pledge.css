@@ -1,0 +1,196 @@
+/* ============================================
+   Pledge Calculator — 質押槓桿評估樣式
+   ============================================ */
+@import url('./style.css');
+
+:root {
+    --pledge-primary: #f59e0b;
+    --pledge-secondary: #fbbf24;
+    --pledge-glow: rgba(245, 158, 11, 0.12);
+    --pledge-gradient: linear-gradient(135deg, #f59e0b, #ef4444);
+    --safe-green: #22c55e;
+    --warn-yellow: #f59e0b;
+    --danger-red: #ef4444;
+}
+
+.pledge-container {
+    position: relative;
+    z-index: 1;
+    max-width: 1060px;
+    margin: 0 auto;
+    padding: 40px 24px 80px;
+}
+
+/* Header */
+.pledge-header { text-align: center; margin-bottom: 36px; }
+.pledge-header h1 {
+    font-size: 2.2rem; font-weight: 800;
+    background: var(--pledge-gradient);
+    -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+    background-clip: text; margin-bottom: 8px;
+}
+.pledge-header p { color: var(--text-secondary); font-size: 1rem; line-height: 1.6; }
+.pledge-header .back-link {
+    display: inline-flex; align-items: center; gap: 6px;
+    color: var(--text-dim); text-decoration: none; font-size: 0.9rem;
+    transition: var(--transition); margin-bottom: 20px;
+}
+.pledge-header .back-link:hover { color: var(--pledge-primary); }
+
+/* Section cards */
+.pledge-section {
+    background: var(--glass-bg); border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-lg); padding: 24px 28px; margin-bottom: 24px;
+    backdrop-filter: blur(12px);
+}
+.pledge-section h2 {
+    font-size: 1.15rem; font-weight: 700; color: var(--text-primary);
+    margin-bottom: 16px; display: flex; align-items: center; gap: 8px;
+}
+
+/* Form */
+.pledge-form-row { display: flex; gap: 16px; flex-wrap: wrap; margin-bottom: 12px; }
+.pledge-form-group { display: flex; flex-direction: column; gap: 4px; }
+.pledge-form-group label { color: var(--text-secondary); font-size: 0.8rem; font-weight: 500; }
+.pledge-form-group input, .pledge-form-group select {
+    background: rgba(255,255,255,0.04); border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-sm); padding: 8px 12px; color: var(--text-primary);
+    font-size: 0.9rem; font-family: var(--font-mono);
+    transition: var(--transition);
+}
+.pledge-form-group input:focus, .pledge-form-group select:focus {
+    outline: none; border-color: var(--pledge-primary);
+    box-shadow: 0 0 0 3px var(--pledge-glow);
+}
+
+/* Dynamic stock rows */
+.pledge-stock-row {
+    display: flex; gap: 8px; align-items: end;
+    padding: 8px 0; border-bottom: 1px solid rgba(255,255,255,0.03);
+}
+.pledge-stock-row:last-child { border-bottom: none; }
+
+/* Remove button */
+.btn-remove {
+    padding: 4px 10px; background: rgba(239,68,68,0.08);
+    border: 1px solid rgba(239,68,68,0.25); color: #fca5a5;
+    border-radius: 6px; cursor: pointer; font-size: 0.85rem;
+    transition: var(--transition);
+}
+.btn-remove:hover { background: rgba(239,68,68,0.2); }
+
+/* Add button */
+.btn-add {
+    margin-top: 8px; padding: 6px 16px; background: transparent;
+    border: 1px dashed var(--border-accent); color: var(--text-dim);
+    border-radius: 8px; cursor: pointer; font-size: 0.85rem;
+    transition: var(--transition);
+}
+.btn-add:hover { border-color: var(--pledge-primary); color: var(--pledge-secondary); }
+
+/* Fetch price button */
+.btn-fetch {
+    padding: 4px 12px; background: rgba(6,182,212,0.1);
+    border: 1px solid rgba(6,182,212,0.3); color: #67e8f9;
+    border-radius: 6px; cursor: pointer; font-size: 0.8rem; white-space: nowrap;
+    transition: var(--transition);
+}
+.btn-fetch:hover { background: rgba(6,182,212,0.2); }
+
+/* Run button */
+.btn-run {
+    display: flex; align-items: center; justify-content: center; gap: 8px;
+    width: 100%; padding: 14px; font-size: 1.05rem; font-weight: 700;
+    color: #fff; background: var(--pledge-gradient);
+    border: none; border-radius: var(--radius-sm); cursor: pointer;
+    transition: all 0.3s; font-family: var(--font-tc);
+}
+.btn-run:hover { transform: translateY(-1px); box-shadow: 0 6px 24px rgba(245,158,11,0.3); }
+
+/* Stat cards grid */
+.pledge-stats {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 14px; margin-bottom: 20px;
+}
+.pledge-stat-card {
+    background: rgba(255,255,255,0.02); border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-md); padding: 16px; text-align: center;
+    transition: var(--transition);
+}
+.pledge-stat-card:hover { border-color: var(--pledge-primary); transform: translateY(-2px); }
+.pledge-stat-card .stat-icon { font-size: 1.4rem; margin-bottom: 6px; }
+.pledge-stat-card .stat-value { font-size: 1.3rem; font-weight: 800; font-family: var(--font-mono); margin-bottom: 4px; }
+.pledge-stat-card .stat-label { color: var(--text-dim); font-size: 0.75rem; line-height: 1.3; }
+
+/* Maintenance ratio gauge */
+.ratio-gauge {
+    display: flex; align-items: center; gap: 12px; padding: 16px 20px;
+    background: rgba(255,255,255,0.02); border-radius: var(--radius-md);
+    border: 1px solid var(--border-subtle); margin-bottom: 20px;
+}
+.ratio-gauge .gauge-bar {
+    flex: 1; height: 14px; background: rgba(255,255,255,0.05);
+    border-radius: 7px; overflow: hidden; position: relative;
+}
+.ratio-gauge .gauge-fill {
+    height: 100%; border-radius: 7px; transition: width 0.6s ease, background 0.4s;
+}
+.ratio-gauge .gauge-label { font-size: 0.8rem; color: var(--text-dim); white-space: nowrap; }
+.ratio-gauge .gauge-value { font-size: 1.1rem; font-weight: 800; font-family: var(--font-mono); white-space: nowrap; min-width: 80px; text-align: right; }
+
+/* Stress test table */
+.pledge-table {
+    width: 100%; border-collapse: collapse; font-size: 0.85rem;
+}
+.pledge-table th {
+    padding: 10px 12px; text-align: center; font-weight: 600;
+    color: var(--text-secondary); border-bottom: 2px solid var(--border-accent);
+    font-size: 0.8rem; white-space: nowrap;
+}
+.pledge-table td {
+    padding: 9px 12px; text-align: center;
+    border-bottom: 1px solid rgba(255,255,255,0.04);
+    font-family: var(--font-mono); font-size: 0.82rem;
+}
+.pledge-table tr:hover td { background: rgba(245,158,11,0.04); }
+.pledge-table .status-safe { color: var(--safe-green); font-weight: 700; }
+.pledge-table .status-caution { color: var(--warn-yellow); font-weight: 700; }
+.pledge-table .status-warning { color: #fb923c; font-weight: 700; }
+.pledge-table .status-danger { color: var(--danger-red); font-weight: 700; }
+
+/* Chart container */
+.pledge-chart-wrap {
+    position: relative; height: 340px; margin-top: 16px;
+    background: rgba(255,255,255,0.01); border-radius: var(--radius-md);
+    padding: 8px;
+}
+
+/* Results panel */
+.pledge-results { display: none; }
+.pledge-results.active { display: block; animation: fadeInUp 0.4s ease-out; }
+
+/* Totals row */
+.totals-row { display: flex; justify-content: flex-end; gap: 20px; padding: 8px 0; margin-top: 4px; }
+.totals-row span { color: var(--text-secondary); font-size: 0.9rem; }
+.totals-row strong { color: var(--pledge-secondary); font-family: var(--font-mono); }
+
+/* Loading */
+.pledge-loading { display: none; text-align: center; padding: 40px; color: var(--text-dim); }
+.pledge-loading.active { display: block; }
+.pledge-loading .spinner {
+    width: 36px; height: 36px; border: 3px solid var(--border-subtle);
+    border-top-color: var(--pledge-primary); border-radius: 50%;
+    animation: spin 0.8s linear infinite; margin: 0 auto 12px;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+@keyframes fadeInUp {
+    from { opacity: 0; transform: translateY(16px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+/* Responsive */
+@media (max-width: 640px) {
+    .pledge-stats { grid-template-columns: repeat(2, 1fr); }
+    .pledge-form-row { flex-direction: column; }
+    .pledge-stock-row { flex-wrap: wrap; }
+}

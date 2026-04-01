@@ -39,14 +39,20 @@
                     <label class="form-label">投資組合配置 (股票代號 + 每月投入金額)</label>
                     <div id="dca-stock-list" style="display:flex; flex-direction:column; gap:8px;">
                         <div class="ghost-stock-row" style="display:flex; gap:8px;">
-                            <input type="text" class="form-input dca-symbol" placeholder="代號 (例 0050)" value="0050" style="flex:1;">
-                            <input type="number" class="form-input dca-amount" value="5000" min="100" step="1000" style="flex:1;" title="每月金額 (NT$)">
-                            <button class="btn" style="padding:0 12px; background:rgba(239,68,68,0.1); border:1px solid rgba(239,68,68,0.3); color:#fca5a5; border-radius:8px;" onclick="if(document.querySelectorAll('#dca-stock-list .ghost-stock-row').length>1) this.parentElement.remove()">✖</button>
+                            <input type="text" class="form-input dca-symbol" placeholder="代號 (例 0050)" value="0050"
+                                style="flex:1;">
+                            <input type="number" class="form-input dca-amount" value="5000" min="100" step="1000"
+                                style="flex:1;" title="每月金額 (NT$)">
+                            <button class="btn"
+                                style="padding:0 12px; background:rgba(239,68,68,0.1); border:1px solid rgba(239,68,68,0.3); color:#fca5a5; border-radius:8px;"
+                                onclick="if(document.querySelectorAll('#dca-stock-list .ghost-stock-row').length>1) this.parentElement.remove()">✖</button>
                         </div>
                     </div>
-                    <button class="btn btn-outline" onclick="addDcaRow()" style="margin-top:12px; padding:6px 16px; border-style:dashed; width:fit-content; border-radius:8px;">➕ 新增標的</button>
+                    <button class="btn btn-outline" onclick="addDcaRow()"
+                        style="margin-top:12px; padding:6px 16px; border-style:dashed; width:fit-content; border-radius:8px;">➕
+                        新增標的</button>
                 </div>
-                
+
                 <div class="form-group" style="flex:1;">
                     <label class="form-label" for="ghost-years">回測年數</label>
                     <input type="number" class="form-input" id="ghost-years" value="12" min="1" max="20">
@@ -125,12 +131,18 @@
                     <label class="form-label">投資組合配置 (股票代號 + 買入股數)</label>
                     <div id="bh-stock-list" style="display:flex; flex-direction:column; gap:8px;">
                         <div class="ghost-stock-row" style="display:flex; gap:8px;">
-                            <input type="text" class="form-input bh-symbol" placeholder="代號 (例 00919)" value="00919" style="flex:1;">
-                            <input type="number" class="form-input bh-shares" value="1000" min="1" step="1" style="flex:1;" title="買入總股數">
-                            <button class="btn" style="padding:0 12px; background:rgba(239,68,68,0.1); border:1px solid rgba(239,68,68,0.3); color:#fca5a5; border-radius:8px;" onclick="if(document.querySelectorAll('#bh-stock-list .ghost-stock-row').length>1) this.parentElement.remove()">✖</button>
+                            <input type="text" class="form-input bh-symbol" placeholder="代號 (例 00919)" value="00919"
+                                style="flex:1;">
+                            <input type="number" class="form-input bh-shares" value="1000" min="1" step="1"
+                                style="flex:1;" title="買入總股數">
+                            <button class="btn"
+                                style="padding:0 12px; background:rgba(239,68,68,0.1); border:1px solid rgba(239,68,68,0.3); color:#fca5a5; border-radius:8px;"
+                                onclick="if(document.querySelectorAll('#bh-stock-list .ghost-stock-row').length>1) this.parentElement.remove()">✖</button>
                         </div>
                     </div>
-                    <button class="btn btn-outline" onclick="addBhRow()" style="margin-top:12px; padding:6px 16px; border-style:dashed; width:fit-content; border-radius:8px;">➕ 新增標的</button>
+                    <button class="btn btn-outline" onclick="addBhRow()"
+                        style="margin-top:12px; padding:6px 16px; border-style:dashed; width:fit-content; border-radius:8px;">➕
+                        新增標的</button>
                 </div>
 
                 <div class="form-group" style="flex:1;">
@@ -177,7 +189,8 @@
                 <table class="detail-table" id="ghost-yearly-detail"></table>
             </div>
             <div style="text-align:center;margin-top:20px;">
-                <button class="btn btn-secondary" onclick="window.scrollTo({top:0,behavior:'smooth'})">⬆ 回到頂部修改設定</button>
+                <button class="btn btn-secondary" onclick="window.scrollTo({top:0,behavior:'smooth'})">⬆
+                    回到頂部修改設定</button>
             </div>
         </div>
 
@@ -195,7 +208,8 @@
                 <table class="detail-table" id="bh-dividend-table"></table>
             </div>
             <div style="text-align:center;margin-top:20px;">
-                <button class="btn btn-secondary" onclick="window.scrollTo({top:0,behavior:'smooth'})">⬆ 回到頂部修改設定</button>
+                <button class="btn btn-secondary" onclick="window.scrollTo({top:0,behavior:'smooth'})">⬆
+                    回到頂部修改設定</button>
             </div>
         </div>
     </div>
@@ -251,7 +265,7 @@
                 $('ghost-results').classList.remove('active');
 
                 try {
-                    const fetchPromises = portfolioConfig.map(cfg => 
+                    const fetchPromises = portfolioConfig.map(cfg =>
                         fetch(`/api/stock/${encodeURIComponent(cfg.symbol)}/backtest?years=${years}`)
                             .then(res => res.json())
                             .then(data => ({ symbol: cfg.symbol, amount: cfg.amount, data }))
@@ -262,7 +276,7 @@
 
                     for (const f of fetchedResults) {
                         if (f.data.error) throw new Error(`查詢 ${f.symbol} 失敗：${f.data.error}`);
-                        
+
                         const engine = new GhostBacktest({
                             months: f.data.months,
                             dividends: f.data.dividends,
@@ -442,7 +456,23 @@
                     options: {
                         responsive: true, maintainAspectRatio: false,
                         interaction: { mode: 'index', intersect: false },
-                        plugins: { legend: { labels: { color: '#94a3b8' } }, tooltip: { callbacks: { label: ctx => `${ctx.dataset.label}: ${ctx.dataset.yAxisID === 'yPrice' ? '$' : 'NT$ '} ${ctx.dataset.yAxisID === 'yPrice' ? ctx.parsed.y.toFixed(2) : Math.round(ctx.parsed.y).toLocaleString()}` } } },
+                        plugins: { 
+                            legend: { labels: { color: '#94a3b8' } }, 
+                            tooltip: { 
+                                callbacks: { 
+                                    label: ctx => {
+                                        let text = `${ctx.dataset.label}: ${ctx.dataset.yAxisID === 'yPrice' ? '$' : 'NT$ '} ${ctx.dataset.yAxisID === 'yPrice' ? ctx.parsed.y.toFixed(2) : Math.round(ctx.parsed.y).toLocaleString()}`;
+                                        if (ctx.dataset.label === '市值') {
+                                            const dp = monthlyDetails[ctx.dataIndex];
+                                            if (dp && dp.price && dp.shares) {
+                                                text += ` (${dp.shares.toFixed(2)}股 @ $${dp.price.toFixed(2)})`;
+                                            }
+                                        }
+                                        return text;
+                                    } 
+                                } 
+                            } 
+                        },
                         scales
                     },
                 });
@@ -462,7 +492,7 @@
             }
 
             // Helpers for dynamic rows
-            window.addDcaRow = function() {
+            window.addDcaRow = function () {
                 const list = document.getElementById('dca-stock-list');
                 const row = document.createElement('div');
                 row.className = 'ghost-stock-row';
@@ -473,7 +503,7 @@
                 list.appendChild(row);
             };
 
-            window.addBhRow = function() {
+            window.addBhRow = function () {
                 const list = document.getElementById('bh-stock-list');
                 const row = document.createElement('div');
                 row.className = 'ghost-stock-row';
@@ -511,7 +541,7 @@
                 const yearsNeeded = new Date().getFullYear() - buyYear + 1;
 
                 try {
-                    const fetchPromises = portfolioConfig.map(cfg => 
+                    const fetchPromises = portfolioConfig.map(cfg =>
                         fetch(`/api/stock/${encodeURIComponent(cfg.symbol)}/backtest?years=${Math.max(yearsNeeded, 5)}`)
                             .then(res => res.json())
                             .then(data => ({ symbol: cfg.symbol, shares: cfg.shares, data }))
@@ -522,7 +552,7 @@
 
                     for (const f of fetchedResults) {
                         if (f.data.error) throw new Error(`查詢 ${f.symbol} 失敗：${f.data.error}`);
-                        
+
                         const result = GhostBacktest.runBuyAndHold({
                             months: f.data.months,
                             dividends: f.data.dividends,
@@ -624,7 +654,7 @@
                 }, 100);
             }
 
-            window.renderPortfolioBreakdown = function(breakdown, isBuyHold = false) {
+            window.renderPortfolioBreakdown = function (breakdown, isBuyHold = false) {
                 const targetId = isBuyHold ? 'bh-dividend-table' : 'ghost-yearly-detail';
                 // Insert a breakdown table before the yearly details/dividend table
                 const parent = $(targetId).parentElement;
@@ -635,13 +665,15 @@
                     bdDiv.style.cssText = 'overflow-x:auto; margin-bottom: 24px;';
                     parent.insertBefore(bdDiv, $(targetId));
                 }
-                
+
                 let html = `<h3 style="margin-bottom:12px; font-size:1.1rem; color:var(--text-primary);"><span style="font-size:1.2rem; vertical-align:middle;">💼</span> 投資組合配置與獨立績效表</h3>
                             <table class="ghost-table">
-                            <thead><tr><th>標的</th><th>佔比</th><th>投入資金</th><th>配息 (現金/存股)</th><th>現值總計</th><th>總報酬ROI</th><th>年化IRR</th></tr></thead><tbody>`;
+                            <thead><tr><th>標的</th><th>當前股價</th><th>總持有股數</th><th>佔比</th><th>投入資金</th><th>配息 (現金/存股)</th><th>現值總計</th><th>總報酬ROI</th><th>年化IRR</th></tr></thead><tbody>`;
                 for (const b of breakdown) {
                     html += `<tr>
                                 <td style="font-weight:bold;color:var(--accent-purple);">${b.symbol}</td>
+                                <td style="color:#f59e0b;">NT$ ${b.finalPrice.toFixed(2)}</td>
+                                <td>${b.shares.toFixed(2)} 股</td>
                                 <td class="text-cyan">${(b.weightPct * 100).toFixed(1)}%</td>
                                 <td>NT$ ${fmtCur(b.invested)}</td>
                                 <td class="text-purple">NT$ ${fmtCur(b.dividends)}</td>
@@ -687,7 +719,23 @@
                     options: {
                         responsive: true, maintainAspectRatio: false,
                         interaction: { mode: 'index', intersect: false },
-                        plugins: { legend: { labels: { color: '#94a3b8' } }, tooltip: { callbacks: { label: ctx => `${ctx.dataset.label}: ${ctx.dataset.yAxisID === 'yPrice' ? '$' : 'NT$ '} ${ctx.dataset.yAxisID === 'yPrice' ? ctx.parsed.y.toFixed(2) : Math.round(ctx.parsed.y).toLocaleString()}` } } },
+                        plugins: { 
+                            legend: { labels: { color: '#94a3b8' } }, 
+                            tooltip: { 
+                                callbacks: { 
+                                    label: ctx => {
+                                        let text = `${ctx.dataset.label}: ${ctx.dataset.yAxisID === 'yPrice' ? '$' : 'NT$ '} ${ctx.dataset.yAxisID === 'yPrice' ? ctx.parsed.y.toFixed(2) : Math.round(ctx.parsed.y).toLocaleString()}`;
+                                        if (ctx.dataset.label === '市值') {
+                                            const dp = monthlyDetails[ctx.dataIndex];
+                                            if (dp && dp.price && dp.shares) {
+                                                text += ` (${dp.shares.toFixed(2)}股 @ $${dp.price.toFixed(2)})`;
+                                            }
+                                        }
+                                        return text;
+                                    } 
+                                } 
+                            } 
+                        },
                         scales
                     },
                 });
@@ -713,7 +761,7 @@
                             const yieldTag = e.dividendYield ? ` <span style="color:#f59e0b;">[殖利率 ${e.dividendYield.toFixed(2)}%]</span>` : '';
                             return `${symPrefix}${e.date} (${e.perShare}元/股 × ${e.shares}股 → NT$${fmtCur(e.total)})${yieldTag}${drText}`;
                         }).join('<br>');
-                        
+
                         html += `<tr>
                             <td>${y.year}</td>
                             <td>${y.count} 次</td>

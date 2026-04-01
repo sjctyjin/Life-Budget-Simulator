@@ -1,0 +1,668 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>🏦 質押槓桿評估 | Life Budget Simulator</title>
+    <meta name="description" content="股票質押維持率計算、壓力測試、現金流預測與蒙地卡羅模擬。">
+    <link rel="icon" href="favicon.svg" type="image/svg+xml">
+    <link rel="stylesheet" href="css/pledge.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+</head>
+
+<body>
+    <div class="pledge-container">
+
+        <!-- Header -->
+        <div class="pledge-header">
+            <a href="index.html" class="back-link">← 返回主模擬器</a>
+            <h1>🏦 質押槓桿評估</h1>
+            <p>
+                用現有持股做擔保品質押借款，投入高股息標的創造現金流。<br>
+                即時計算維持率、可承受跌幅，並用蒙地卡羅模擬 18 個月風險。
+            </p>
+        </div>
+
+        <!-- ============ Section 1: Collateral ============ -->
+        <div class="pledge-section">
+            <h2>📋 擔保品（我的持股）</h2>
+            <div id="collateral-list">
+                <div class="pledge-stock-row">
+                    <div class="pledge-form-group" style="flex:1.2;">
+                        <label>股票代號</label>
+                        <input type="text" class="col-symbol" placeholder="例 0050" value="0050">
+                    </div>
+                    <div class="pledge-form-group" style="flex:0.8;">
+                        <label>張數</label>
+                        <input type="number" class="col-lots" value="8" min="1" step="1">
+                    </div>
+                    <div class="pledge-form-group" style="flex:1;">
+                        <label>即時股價</label>
+                        <input type="number" class="col-price" placeholder="自動抓取" step="0.01" readonly>
+                    </div>
+                    <div class="pledge-form-group" style="flex:1;">
+                        <label>市值</label>
+                        <input type="text" class="col-value" readonly style="color:var(--accent-cyan);">
+                    </div>
+                    <button class="btn-fetch" onclick="fetchPrice(this)">📡 抓價</button>
+                    <button class="btn-remove" onclick="removeRow(this, 'collateral-list')">✖</button>
+                </div>
+            </div>
+            <button class="btn-add" onclick="addCollateralRow()">➕ 新增擔保品</button>
+            <div class="totals-row">
+                <span>擔保品總市值：<strong id="total-collateral-value">NT$ 0</strong></span>
+            </div>
+        </div>
+
+        <!-- ============ Section 2: Loan Parameters ============ -->
+        <div class="pledge-section">
+            <h2>💰 質押借款條件</h2>
+            <div class="pledge-form-row">
+                <div class="pledge-form-group" style="flex:1;">
+                    <label>質押成數 (%)</label>
+                    <input type="number" id="pledge-ratio" value="60" min="10" max="90" step="5">
+                </div>
+                <div class="pledge-form-group" style="flex:1;">
+                    <label>可借上限</label>
+                    <input type="text" id="pledge-max-loan" readonly style="color:var(--accent-purple);">
+                </div>
+                <div class="pledge-form-group" style="flex:1;">
+                    <label>實際借款金額 (NT$)</label>
+                    <input type="number" id="loan-amount" value="400000" min="0" step="10000">
+                </div>
+                <div class="pledge-form-group" style="flex:1;">
+                    <label>年利率 (%)</label>
+                    <input type="number" id="loan-rate" value="2.68" min="0" max="20" step="0.01">
+                </div>
+            </div>
+        </div>
+
+        <!-- ============ Section 3: Investment Targets ============ -->
+        <div class="pledge-section">
+            <h2>🎯 投資標的（借款用途）</h2>
+            <div id="invest-list">
+                <div class="pledge-stock-row">
+                    <div class="pledge-form-group" style="flex:1.2;">
+                        <label>股票代號</label>
+                        <input type="text" class="inv-symbol" placeholder="例 0056" value="0056">
+                    </div>
+                    <div class="pledge-form-group" style="flex:1;">
+                        <label>分配金額 (NT$)</label>
+                        <input type="number" class="inv-amount" value="400000" min="0" step="10000">
+                    </div>
+                    <div class="pledge-form-group" style="flex:0.8;">
+                        <label>即時股價</label>
+                        <input type="number" class="inv-price" placeholder="自動抓取" step="0.01" readonly>
+                    </div>
+                    <div class="pledge-form-group" style="flex:0.8;">
+                        <label>可買股數</label>
+                        <input type="text" class="inv-shares" readonly style="color:var(--accent-cyan);">
+                    </div>
+                    <div class="pledge-form-group" style="flex:0.8;">
+                        <label>預估年殖利率 (%)</label>
+                        <input type="number" class="inv-yield" value="6.5" min="0" max="30" step="0.1">
+                    </div>
+                    <button class="btn-fetch" onclick="fetchInvestPrice(this)">📡 抓價</button>
+                    <button class="btn-remove" onclick="removeRow(this, 'invest-list')">✖</button>
+                </div>
+            </div>
+            <button class="btn-add" onclick="addInvestRow()">➕ 新增標的</button>
+        </div>
+
+        <!-- Run Button -->
+        <button class="btn-run" id="btn-run-pledge" style="margin-bottom:28px;">
+            ⚡ 計算質押評估
+        </button>
+
+        <!-- Loading -->
+        <div class="pledge-loading" id="pledge-loading">
+            <div class="spinner"></div>
+            <span>正在抓取即時股價與配息資料...</span>
+        </div>
+
+        <!-- ============ Results ============ -->
+        <div class="pledge-results" id="pledge-results">
+
+            <!-- Maintenance Ratio Gauge -->
+            <div class="pledge-section">
+                <h2>📊 質押維持率</h2>
+                <div class="ratio-gauge">
+                    <div class="gauge-label">追繳 130%</div>
+                    <div class="gauge-bar">
+                        <div class="gauge-fill" id="gauge-fill" style="width:0%;"></div>
+                    </div>
+                    <div class="gauge-value" id="gauge-value">—%</div>
+                </div>
+
+                <!-- Stat cards -->
+                <div class="pledge-stats" id="stat-cards"></div>
+            </div>
+
+            <!-- Stress Test Table -->
+            <div class="pledge-section">
+                <h2>⚡ 壓力測試 — 大盤下跌情境分析</h2>
+                <div style="overflow-x:auto;">
+                    <table class="pledge-table" id="stress-table"></table>
+                </div>
+            </div>
+
+            <!-- Monte Carlo Chart -->
+            <div class="pledge-section">
+                <h2>🎲 蒙地卡羅模擬 — 18 個月維持率走勢</h2>
+                <p style="color:var(--text-dim);font-size:0.8rem;margin-bottom:8px;">
+                    以歷史波動率模擬 500 條路徑，展示維持率可能的分布範圍。紅色虛線 = 追繳線 (130%)，橘色虛線 = 警戒線 (166%)。
+                </p>
+                <div class="pledge-chart-wrap">
+                    <canvas id="mc-chart"></canvas>
+                </div>
+                <div class="pledge-stats" id="mc-stats" style="margin-top:16px;"></div>
+            </div>
+
+            <!-- Monthly Cash Flow Detail -->
+            <div class="pledge-section">
+                <h2>💸 月現金流明細</h2>
+                <div style="overflow-x:auto;">
+                    <table class="pledge-table" id="cashflow-table"></table>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        (() => {
+            // ==================== HELPERS ====================
+            const $ = id => document.getElementById(id);
+            const fmtCur = v => Math.round(v).toLocaleString();
+            const fmtPct = (v, d = 2) => (v * 100).toFixed(d) + '%';
+
+            async function fetchStockInfo(symbol) {
+                const res = await fetch(`/api/stock/${encodeURIComponent(symbol)}/backtest?years=2`);
+                const data = await res.json();
+                if (data.error) throw new Error(data.error);
+                const now = new Date();
+                const oneYearAgo = new Date(now.getFullYear() - 1, now.getMonth(), now.getDate());
+                const recentDivs = (data.dividends || []).filter(d => new Date(d.date) >= oneYearAgo);
+                const annualDiv = recentDivs.reduce((sum, d) => sum + d.amount, 0);
+
+                // Detect Frequency and Extrapolate (for new ETFs with incomplete year data)
+                let freq = '';
+                if (recentDivs.length >= 2) {
+                    let totalDays = 0;
+                    for (let i = 1; i < recentDivs.length; i++) {
+                        totalDays += (new Date(recentDivs[i].date) - new Date(recentDivs[i-1].date)) / (1000 * 60 * 60 * 24);
+                    }
+                    const avgDays = totalDays / (recentDivs.length - 1);
+                    if (avgDays >= 20 && avgDays <= 40) freq = 'MONTHLY';
+                    else if (avgDays >= 75 && avgDays <= 105) freq = 'QUARTERLY';
+                }
+
+                let extrapolatedAnnualDiv = annualDiv;
+                let monthlyDist = Array(12).fill(0);
+
+                if (recentDivs.length > 0) {
+                    if (freq === 'MONTHLY' && recentDivs.length < 12) {
+                        extrapolatedAnnualDiv = (annualDiv / recentDivs.length) * 12;
+                        monthlyDist = Array(12).fill(1 / 12);
+                    } else if (freq === 'QUARTERLY' && recentDivs.length < 4) {
+                        extrapolatedAnnualDiv = (annualDiv / recentDivs.length) * 4;
+                        // Determine cycle based on last month
+                        const lastM = new Date(recentDivs[recentDivs.length - 1].date).getMonth();
+                        for (let m = lastM; m <= 11; m += 3) monthlyDist[m] = 0.25;
+                        for (let m = lastM - 3; m >= 0; m -= 3) monthlyDist[m] = 0.25;
+                    } else {
+                        // Regular distribution
+                        for (const d of recentDivs) {
+                            const monthIdx = new Date(d.date).getMonth(); // 0-11
+                            monthlyDist[monthIdx] += d.amount / annualDiv;
+                        }
+                    }
+                } else {
+                    // Fallback to quarterly if absolutely no data
+                    monthlyDist[2] = 0.25; monthlyDist[5] = 0.25; monthlyDist[8] = 0.25; monthlyDist[11] = 0.25;
+                }
+
+                const yieldPct = data.currentPrice > 0 ? (extrapolatedAnnualDiv / data.currentPrice) * 100 : 0;
+                // Get historical monthly returns for Monte Carlo
+                const monthlyReturns = [];
+                for (let i = 1; i < data.months.length; i++) {
+                    if (data.months[i].close && data.months[i - 1].close) {
+                        monthlyReturns.push(data.months[i].close / data.months[i - 1].close - 1);
+                    }
+                }
+                return {
+                    symbol: data.symbol,
+                    price: data.currentPrice,
+                    annualDiv,
+                    yieldPct,
+                    monthlyDist,
+                    monthlyReturns
+                };
+            }
+
+            // ==================== DYNAMIC ROWS ====================
+            window.addCollateralRow = function () {
+                const list = $('collateral-list');
+                const row = document.createElement('div');
+                row.className = 'pledge-stock-row';
+                row.innerHTML = `
+                <div class="pledge-form-group" style="flex:1.2;"><label>股票代號</label><input type="text" class="col-symbol" placeholder="例 00878"></div>
+                <div class="pledge-form-group" style="flex:0.8;"><label>張數</label><input type="number" class="col-lots" value="1" min="1" step="1"></div>
+                <div class="pledge-form-group" style="flex:1;"><label>即時股價</label><input type="number" class="col-price" placeholder="自動" step="0.01" readonly></div>
+                <div class="pledge-form-group" style="flex:1;"><label>市值</label><input type="text" class="col-value" readonly style="color:var(--accent-cyan);"></div>
+                <button class="btn-fetch" onclick="fetchPrice(this)">📡 抓價</button>
+                <button class="btn-remove" onclick="removeRow(this, 'collateral-list')">✖</button>`;
+                list.appendChild(row);
+            };
+
+            window.addInvestRow = function () {
+                const list = $('invest-list');
+                const row = document.createElement('div');
+                row.className = 'pledge-stock-row';
+                row.innerHTML = `
+                <div class="pledge-form-group" style="flex:1.2;"><label>股票代號</label><input type="text" class="inv-symbol" placeholder="例 00919"></div>
+                <div class="pledge-form-group" style="flex:1;"><label>分配金額 (NT$)</label><input type="number" class="inv-amount" value="0" min="0" step="10000"></div>
+                <div class="pledge-form-group" style="flex:0.8;"><label>即時股價</label><input type="number" class="inv-price" placeholder="自動" step="0.01" readonly></div>
+                <div class="pledge-form-group" style="flex:0.8;"><label>可買股數</label><input type="text" class="inv-shares" readonly style="color:var(--accent-cyan);"></div>
+                <div class="pledge-form-group" style="flex:0.8;"><label>預估年殖利率 (%)</label><input type="number" class="inv-yield" value="6" min="0" max="30" step="0.1"></div>
+                <button class="btn-fetch" onclick="fetchInvestPrice(this)">📡 抓價</button>
+                <button class="btn-remove" onclick="removeRow(this, 'invest-list')">✖</button>`;
+                list.appendChild(row);
+            };
+
+            window.removeRow = function (btn, listId) {
+                const list = $(listId);
+                if (list.querySelectorAll('.pledge-stock-row').length > 1) btn.closest('.pledge-stock-row').remove();
+            };
+
+            window.fetchPrice = async function (btn) {
+                const row = btn.closest('.pledge-stock-row');
+                const sym = row.querySelector('.col-symbol').value.trim();
+                if (!sym) return;
+                btn.textContent = '⏳';
+                try {
+                    const info = await fetchStockInfo(sym);
+                    row.querySelector('.col-price').value = info.price.toFixed(2);
+                    const lots = parseFloat(row.querySelector('.col-lots').value) || 0;
+                    row.querySelector('.col-value').value = 'NT$ ' + fmtCur(info.price * lots * 1000);
+                    updateCollateralTotal();
+                } catch (e) { alert(`抓取 ${sym} 失敗: ${e.message}`); }
+                btn.textContent = '📡 抓價';
+            };
+
+            window.fetchInvestPrice = async function (btn) {
+                const row = btn.closest('.pledge-stock-row');
+                const sym = row.querySelector('.inv-symbol').value.trim();
+                if (!sym) return;
+                btn.textContent = '⏳';
+                try {
+                    const info = await fetchStockInfo(sym);
+                    row.querySelector('.inv-price').value = info.price.toFixed(2);
+                    row.querySelector('.inv-yield').value = info.yieldPct.toFixed(1);
+                    const amt = parseFloat(row.querySelector('.inv-amount').value) || 0;
+                    const shares = info.price > 0 ? Math.floor(amt / info.price) : 0;
+                    row.querySelector('.inv-shares').value = shares.toLocaleString() + ' 股';
+                } catch (e) { alert(`抓取 ${sym} 失敗: ${e.message}`); }
+                btn.textContent = '📡 抓價';
+            };
+
+            function updateCollateralTotal() {
+                let total = 0;
+                document.querySelectorAll('#collateral-list .pledge-stock-row').forEach(row => {
+                    const price = parseFloat(row.querySelector('.col-price').value) || 0;
+                    const lots = parseFloat(row.querySelector('.col-lots').value) || 0;
+                    total += price * lots * 1000;
+                });
+                $('total-collateral-value').textContent = 'NT$ ' + fmtCur(total);
+                const ratio = parseFloat($('pledge-ratio').value) || 60;
+                $('pledge-max-loan').value = 'NT$ ' + fmtCur(total * ratio / 100);
+            }
+
+            // Auto-update max loan when ratio changes
+            $('pledge-ratio').addEventListener('input', updateCollateralTotal);
+
+            // ==================== MAIN CALCULATION ====================
+            let mcChart = null;
+
+            $('btn-run-pledge').addEventListener('click', runPledgeAnalysis);
+
+            async function runPledgeAnalysis() {
+                $('pledge-loading').classList.add('active');
+                $('pledge-results').classList.remove('active');
+
+                try {
+                    // 1. Fetch all collateral prices
+                    const colRows = document.querySelectorAll('#collateral-list .pledge-stock-row');
+                    let collateralTotal = 0;
+                    const allMonthlyReturns = [];
+
+                    const colItems = [];
+
+                    for (const row of colRows) {
+                        const sym = row.querySelector('.col-symbol').value.trim();
+                        if (!sym) continue;
+                        const info = await fetchStockInfo(sym);
+                        const lots = parseFloat(row.querySelector('.col-lots').value) || 0;
+                        row.querySelector('.col-price').value = info.price.toFixed(2);
+                        const val = info.price * lots * 1000;
+                        row.querySelector('.col-value').value = 'NT$ ' + fmtCur(val);
+                        collateralTotal += val;
+                        colItems.push({ symbol: sym, price: info.price, lots: lots });
+                        if (info.monthlyReturns.length > 0) allMonthlyReturns.push(...info.monthlyReturns);
+                    }
+                    updateCollateralTotal();
+
+                    // 2. Fetch investment target info
+                    const invRows = document.querySelectorAll('#invest-list .pledge-stock-row');
+                    let investTotal = 0;
+                    let annualDivIncome = 0;
+                    const invItems = [];
+
+                    for (const row of invRows) {
+                        const sym = row.querySelector('.inv-symbol').value.trim();
+                        if (!sym) continue;
+                        const info = await fetchStockInfo(sym);
+                        const amt = parseFloat(row.querySelector('.inv-amount').value) || 0;
+                        row.querySelector('.inv-price').value = info.price.toFixed(2);
+                        const shares = info.price > 0 ? Math.floor(amt / info.price) : 0;
+                        row.querySelector('.inv-shares').value = shares.toLocaleString() + ' 股';
+                        // Use API yield if > 0, else use user input
+                        const yieldPct = info.yieldPct > 0 ? info.yieldPct : (parseFloat(row.querySelector('.inv-yield').value) || 0);
+                        row.querySelector('.inv-yield').value = yieldPct.toFixed(1);
+                        const actualInvested = shares * info.price;
+                        investTotal += actualInvested;
+                        const divForThis = actualInvested * yieldPct / 100;
+                        annualDivIncome += divForThis;
+                        invItems.push({ symbol: sym, invested: actualInvested, shares, price: info.price, yieldPct, annualDiv: divForThis, monthlyDist: info.monthlyDist });
+                        if (info.monthlyReturns.length > 0) allMonthlyReturns.push(...info.monthlyReturns);
+                    }
+
+                    // 3. Loan parameters
+                    const loanAmt = parseFloat($('loan-amount').value) || 0;
+                    const loanRate = parseFloat($('loan-rate').value) / 100 || 0.0268;
+                    const annualInterest = loanAmt * loanRate;
+
+                    // 4. Core calculations
+                    const maintenanceRatio = loanAmt > 0 ? (collateralTotal / loanAmt) * 100 : Infinity;
+                    const marginCallLine = 130; // %
+                    const warningLine = 166; // %
+                    const maxDrop = loanAmt > 0 ? (1 - (loanAmt * marginCallLine / 100) / collateralTotal) : 1;
+                    const netIncome = annualDivIncome - annualInterest;
+                    const monthlyCashflow = netIncome / 12;
+                    const investYield = investTotal > 0 ? (annualDivIncome / investTotal) * 100 : 0;
+                    const spreadPct = investYield - loanRate * 100;
+
+                    // 5. Render results
+                    renderGauge(maintenanceRatio, marginCallLine, warningLine);
+                    renderStatCards(collateralTotal, loanAmt, maintenanceRatio, maxDrop, annualInterest, annualDivIncome, netIncome, monthlyCashflow, spreadPct, investYield, loanRate);
+                    renderStressTable(collateralTotal, investTotal, loanAmt, marginCallLine, warningLine, annualDivIncome, annualInterest, colItems, invItems);
+                    renderCashflowTable(invItems, annualInterest, loanAmt);
+
+                    // 6. Monte Carlo
+                    if (allMonthlyReturns.length > 6) {
+                        runMonteCarlo(collateralTotal, investTotal, loanAmt, marginCallLine, warningLine, allMonthlyReturns, annualDivIncome, annualInterest);
+                    } else {
+                        $('mc-stats').innerHTML = '<p style="color:var(--text-dim);text-align:center;">歷史資料不足，無法進行蒙地卡羅模擬</p>';
+                    }
+
+                    $('pledge-results').classList.add('active');
+                    setTimeout(() => $('pledge-results').scrollIntoView({ behavior: 'smooth', block: 'start' }), 100);
+
+                } catch (err) {
+                    alert('計算失敗: ' + err.message);
+                    console.error(err);
+                } finally {
+                    $('pledge-loading').classList.remove('active');
+                }
+            }
+
+            // ==================== RENDER FUNCTIONS ====================
+
+            function renderGauge(ratio, callLine, warnLine) {
+                const fill = $('gauge-fill');
+                const capped = Math.min(ratio, 500);
+                fill.style.width = (capped / 500 * 100) + '%';
+                if (ratio >= warnLine) {
+                    fill.style.background = 'linear-gradient(90deg, var(--safe-green), #16a34a)';
+                } else if (ratio >= callLine) {
+                    fill.style.background = 'linear-gradient(90deg, var(--warn-yellow), #fb923c)';
+                } else {
+                    fill.style.background = 'linear-gradient(90deg, var(--danger-red), #dc2626)';
+                }
+                const status = ratio >= warnLine ? '✅ 安全' : ratio >= callLine ? '⚠️ 警戒' : '🔴 追繳';
+                $('gauge-value').textContent = ratio === Infinity ? '∞' : ratio.toFixed(0) + '%';
+                $('gauge-value').style.color = ratio >= warnLine ? 'var(--safe-green)' : ratio >= callLine ? 'var(--warn-yellow)' : 'var(--danger-red)';
+            }
+
+            function renderStatCards(colVal, loan, ratio, maxDrop, interest, divIncome, netIncome, monthlyCF, spread, invYield, loanRate) {
+                const safeColor = v => v >= 0 ? 'var(--safe-green)' : 'var(--danger-red)';
+                $('stat-cards').innerHTML = `
+                <div class="pledge-stat-card"><div class="stat-icon">🏛️</div><div class="stat-value" style="color:var(--accent-cyan)">NT$ ${fmtCur(colVal)}</div><div class="stat-label">擔保品總市值</div></div>
+                <div class="pledge-stat-card"><div class="stat-icon">💳</div><div class="stat-value" style="color:var(--accent-purple)">NT$ ${fmtCur(loan)}</div><div class="stat-label">實際借款金額</div></div>
+                <div class="pledge-stat-card"><div class="stat-icon">📉</div><div class="stat-value" style="color:${maxDrop > 0.3 ? 'var(--safe-green)' : 'var(--warn-yellow)'}">${(maxDrop * 100).toFixed(1)}%</div><div class="stat-label">可承受最大跌幅</div></div>
+                <div class="pledge-stat-card"><div class="stat-icon">🏦</div><div class="stat-value" style="color:var(--danger-red)">NT$ ${fmtCur(interest)}</div><div class="stat-label">年利息支出 (${(loanRate * 100).toFixed(2)}%)</div></div>
+                <div class="pledge-stat-card"><div class="stat-icon">🎁</div><div class="stat-value" style="color:var(--safe-green)">NT$ ${fmtCur(divIncome)}</div><div class="stat-label">年配息收入 (${invYield.toFixed(1)}%)</div></div>
+                <div class="pledge-stat-card"><div class="stat-icon">💰</div><div class="stat-value" style="color:${safeColor(netIncome)}">NT$ ${fmtCur(netIncome)}</div><div class="stat-label">年淨收益 (利差 ${spread.toFixed(2)}%)</div></div>
+                <div class="pledge-stat-card"><div class="stat-icon">📅</div><div class="stat-value" style="color:${safeColor(monthlyCF)}">NT$ ${fmtCur(monthlyCF)}</div><div class="stat-label">月現金流</div></div>
+                <div class="pledge-stat-card"><div class="stat-icon">⏱️</div><div class="stat-value" style="color:var(--text-primary)">${netIncome > 0 ? (loan / netIncome).toFixed(1) + ' 年' : '—'}</div><div class="stat-label">淨利差回本年數</div></div>
+            `;
+            }
+
+            function renderStressTable(colVal, investVal, loan, callLine, warnLine, divIncome, interest, colItems, invItems) {
+                const dropLevels = [0, -5, -10, -15, -20, -25, -30, -35, -40, -45, -50];
+                let html = `<thead><tr><th>大盤跌幅</th><th>擔保品市值</th><th>投資標的市值</th><th>維持率</th><th>狀態</th><th>淨資產</th><th>年淨收益</th></tr></thead><tbody>`;
+                for (const drop of dropLevels) {
+                    const factor = 1 + drop / 100;
+                    const newCol = colVal * factor;
+                    const newInv = investVal * factor;
+                    const ratio = loan > 0 ? (newCol / loan) * 100 : Infinity;
+                    let status, cls;
+                    if (ratio >= warnLine) { status = '✅ 安全'; cls = 'status-safe'; }
+                    else if (ratio >= callLine) { status = '⚠️ 警戒'; cls = 'status-caution'; }
+                    else if (ratio >= 120) { status = '🟠 危險'; cls = 'status-warning'; }
+                    else { status = '🔴 追繳/斷頭'; cls = 'status-danger'; }
+                    const netAsset = newCol + newInv - loan;
+                    
+                    // Assume dividend also drops proportionally in bad markets (conservative)
+                    const adjDivIncome = divIncome * Math.max(factor, 0.5);
+                    const netIncome = adjDivIncome - interest;
+                    
+                    // Tooltips showing individual stock prices
+                    let colTooltip = '擔保品價格：\n';
+                    colItems.forEach(item => {
+                        colTooltip += `${item.symbol}: $${(item.price * factor).toFixed(2)}\n`;
+                    });
+                    
+                    let invTooltip = '質押買入標的價格：\n';
+                    invItems.forEach(item => {
+                        invTooltip += `${item.symbol}: $${(item.price * factor).toFixed(2)}\n`;
+                    });
+
+                    html += `<tr>
+                    <td style="font-weight:700;color:${drop === 0 ? 'var(--text-primary)' : drop >= -20 ? 'var(--warn-yellow)' : 'var(--danger-red)'}">${drop === 0 ? '目前' : drop + '%'}</td>
+                    <td style="cursor:help; text-decoration:underline dashed rgba(255,255,255,0.3);" title="${colTooltip}" onclick="if(window.innerWidth<=768)alert(this.title)">NT$ ${fmtCur(newCol)}</td>
+                    <td style="cursor:help; text-decoration:underline dashed rgba(255,255,255,0.3);" title="${invTooltip}" onclick="if(window.innerWidth<=768)alert(this.title)">NT$ ${fmtCur(newInv)}</td>
+                    <td style="font-weight:700;color:${ratio >= warnLine ? 'var(--safe-green)' : ratio >= callLine ? 'var(--warn-yellow)' : 'var(--danger-red)'}">${ratio.toFixed(0)}%</td>
+                    <td class="${cls}">${status}</td>
+                    <td style="color:${netAsset >= 0 ? 'var(--accent-cyan)' : 'var(--danger-red)'}">NT$ ${fmtCur(netAsset)}</td>
+                    <td style="color:${netIncome >= 0 ? 'var(--safe-green)' : 'var(--danger-red)'}">NT$ ${fmtCur(netIncome)}</td>
+                </tr>`;
+                }
+                html += '</tbody>';
+                $('stress-table').innerHTML = html;
+            }
+
+            function renderCashflowTable(items, annualInterest, loan) {
+                const monthlyInterest = annualInterest / 12;
+                let html = `<thead><tr>
+                    <th style="min-width:100px;text-align:left;">標的</th>
+                    <th style="min-width:100px;text-align:right;">投入金額</th>
+                    <th style="min-width:80px;text-align:right;">股數</th>
+                    <th style="min-width:80px;text-align:right;">年殖利率</th>
+                    <th style="min-width:100px;text-align:right;">年配息</th>`;
+                
+                const nowMonth = new Date().getMonth(); // 0-11
+                for (let i = 1; i <= 18; i++) {
+                    const monthName = (nowMonth + i) % 12 + 1; // get actual calendar month (1-12)
+                    html += `<th style="min-width:80px;">第${i}月<br><span style="font-size:0.75rem;font-weight:normal;color:var(--text-dim)">( ${monthName}月 )</span></th>`;
+                }
+                html += `</tr></thead><tbody>`;
+                
+                let totalAnnualDiv = 0;
+                const monthlyDivTotals = Array(18).fill(0);
+                
+                for (const it of items) {
+                    totalAnnualDiv += it.annualDiv;
+                    html += `<tr>
+                        <td style="font-weight:700;color:var(--accent-purple);text-align:left;">${it.symbol}</td>
+                        <td style="text-align:right;">NT$ ${fmtCur(it.invested)}</td>
+                        <td style="text-align:right;">${it.shares.toLocaleString()}</td>
+                        <td style="text-align:right;" class="status-safe">${it.yieldPct.toFixed(1)}%</td>
+                        <td style="color:var(--safe-green);text-align:right;">NT$ ${fmtCur(it.annualDiv)}</td>`;
+                    
+                    for (let i = 1; i <= 18; i++) {
+                        const projMonthIdx = (nowMonth + i) % 12; // 0-11
+                        const monthAmt = it.annualDiv * it.monthlyDist[projMonthIdx];
+                        monthlyDivTotals[i - 1] += monthAmt;
+                        html += `<td style="color:${monthAmt > 0 ? 'var(--safe-green)' : 'rgba(255,255,255,0.1)'};text-align:center;">${monthAmt > 0 ? fmtCur(monthAmt) : '-'}</td>`;
+                    }
+                    html += `</tr>`;
+                }
+                
+                // Add Interest Row
+                html += `<tr style="border-top:2px solid var(--border-accent);">
+                    <td style="font-weight:700;text-align:left;">💳 借款利息</td>
+                    <td colspan="3" style="text-align:right;color:var(--text-dim);">借款總額 NT$ ${fmtCur(loan)}</td>
+                    <td style="color:var(--danger-red);text-align:right;">-NT$ ${fmtCur(annualInterest)}</td>`;
+                for (let i = 1; i <= 18; i++) {
+                    html += `<td style="color:var(--danger-red);text-align:center;">-${fmtCur(monthlyInterest)}</td>`;
+                }
+                html += `</tr>`;
+                
+                // Add Net Cash flow row
+                const netAnnual = totalAnnualDiv - annualInterest;
+                html += `<tr style="font-weight:800;font-size:0.95rem;background:rgba(255,255,255,0.02)">
+                    <td style="text-align:left;">📊 淨現金流</td>
+                    <td colspan="3"></td>
+                    <td style="text-align:right;color:${netAnnual >= 0 ? 'var(--safe-green)' : 'var(--danger-red)'}">${netAnnual > 0 ? '+' : ''}NT$ ${fmtCur(netAnnual)}</td>`;
+                for (let i = 0; i < 18; i++) {
+                    const netAmt = monthlyDivTotals[i] - monthlyInterest;
+                    html += `<td style="color:${netAmt >= 0 ? 'var(--safe-green)' : 'var(--danger-red)'};text-align:center;">${netAmt > 0 ? '+' : ''}${fmtCur(netAmt)}</td>`;
+                }
+                html += `</tr>`;
+                html += '</tbody>';
+                $('cashflow-table').innerHTML = html;
+            }
+
+            // ==================== MONTE CARLO ====================
+            function runMonteCarlo(colVal, invVal, loan, callLine, warnLine, monthlyReturns, annualDiv, annualInterest) {
+                const months = 18;
+                const paths = 500;
+
+                // Calculate mean and stddev of monthly returns
+                const mean = monthlyReturns.reduce((a, b) => a + b, 0) / monthlyReturns.length;
+                const variance = monthlyReturns.reduce((a, r) => a + (r - mean) ** 2, 0) / monthlyReturns.length;
+                const stddev = Math.sqrt(variance);
+
+                // Monthly dividend (add to collateral as income)
+                const monthlyDivIncome = annualDiv / 12;
+                const monthlyInterest = annualInterest / 12;
+
+                // Run simulations
+                const allRatios = []; // [path][month] = ratio
+                let breachCount = 0;
+                let warnCount = 0;
+                const finalRatios = [];
+
+                for (let p = 0; p < paths; p++) {
+                    let cv = colVal;
+                    let iv = invVal;
+                    const ratioPath = [loan > 0 ? (cv / loan) * 100 : 999];
+                    let breached = false;
+
+                    for (let m = 1; m <= months; m++) {
+                        // Random return from normal distribution (Box-Muller)
+                        const u1 = Math.random();
+                        const u2 = Math.random();
+                        const z = Math.sqrt(-2 * Math.log(u1)) * Math.cos(2 * Math.PI * u2);
+                        const ret = mean + stddev * z;
+
+                        cv *= (1 + ret);
+                        iv *= (1 + ret);
+
+                        // Add dividend income, subtract interest (net monthly)
+                        iv += monthlyDivIncome - monthlyInterest;
+
+                        const ratio = loan > 0 ? (cv / loan) * 100 : 999;
+                        ratioPath.push(ratio);
+
+                        if (ratio < callLine) breached = true;
+                    }
+
+                    allRatios.push(ratioPath);
+                    if (breached) breachCount++;
+                    const finalR = ratioPath[ratioPath.length - 1];
+                    finalRatios.push(finalR);
+                    if (finalR < warnLine) warnCount++;
+                }
+
+                // Calculate percentiles per month
+                const p5 = [], p25 = [], p50 = [], p75 = [], p95 = [];
+                for (let m = 0; m <= months; m++) {
+                    const vals = allRatios.map(p => p[m]).sort((a, b) => a - b);
+                    p5.push(vals[Math.floor(paths * 0.05)]);
+                    p25.push(vals[Math.floor(paths * 0.25)]);
+                    p50.push(vals[Math.floor(paths * 0.50)]);
+                    p75.push(vals[Math.floor(paths * 0.75)]);
+                    p95.push(vals[Math.floor(paths * 0.95)]);
+                }
+
+                // Render chart
+                const labels = Array.from({ length: months + 1 }, (_, i) => i === 0 ? '今' : `+${i}M`);
+                const ctx = $('mc-chart').getContext('2d');
+                if (mcChart) mcChart.destroy();
+
+                mcChart = new Chart(ctx, {
+                    type: 'line',
+                    data: {
+                        labels,
+                        datasets: [
+                            { label: '95th', data: p95, borderColor: 'rgba(34,197,94,0.3)', backgroundColor: 'rgba(34,197,94,0.05)', fill: '+1', pointRadius: 0, borderWidth: 1 },
+                            { label: '75th', data: p75, borderColor: 'rgba(34,197,94,0.5)', backgroundColor: 'rgba(34,197,94,0.08)', fill: '+1', pointRadius: 0, borderWidth: 1 },
+                            { label: '中位數', data: p50, borderColor: '#22c55e', backgroundColor: 'transparent', pointRadius: 0, borderWidth: 2.5 },
+                            { label: '25th', data: p25, borderColor: 'rgba(245,158,11,0.5)', backgroundColor: 'rgba(245,158,11,0.08)', fill: '+1', pointRadius: 0, borderWidth: 1 },
+                            { label: '5th', data: p5, borderColor: 'rgba(239,68,68,0.5)', backgroundColor: 'transparent', pointRadius: 0, borderWidth: 1.5, borderDash: [3, 3] },
+                            { label: '追繳線 130%', data: Array(months + 1).fill(callLine), borderColor: '#ef4444', borderWidth: 1.5, borderDash: [8, 4], pointRadius: 0, fill: false },
+                            { label: '警戒線 166%', data: Array(months + 1).fill(warnLine), borderColor: '#f59e0b', borderWidth: 1.5, borderDash: [6, 3], pointRadius: 0, fill: false },
+                        ]
+                    },
+                    options: {
+                        responsive: true, maintainAspectRatio: false,
+                        interaction: { mode: 'index', intersect: false },
+                        plugins: {
+                            legend: { labels: { color: '#94a3b8', usePointStyle: true, pointStyle: 'line' } },
+                            tooltip: { callbacks: { label: ctx => `${ctx.dataset.label}: ${ctx.parsed.y.toFixed(0)}%` } }
+                        },
+                        scales: {
+                            x: { ticks: { color: '#64748b' }, grid: { color: 'rgba(255,255,255,0.03)' } },
+                            y: { ticks: { color: '#64748b', callback: v => v + '%' }, grid: { color: 'rgba(255,255,255,0.05)' } }
+                        }
+                    }
+                });
+
+                // MC stats
+                const breachPct = (breachCount / paths * 100).toFixed(1);
+                const avgFinal = finalRatios.reduce((a, b) => a + b, 0) / finalRatios.length;
+                const minFinal = Math.min(...finalRatios);
+                $('mc-stats').innerHTML = `
+                <div class="pledge-stat-card"><div class="stat-icon">🎯</div><div class="stat-value" style="color:var(--safe-green)">${avgFinal.toFixed(0)}%</div><div class="stat-label">18個月後平均維持率</div></div>
+                <div class="pledge-stat-card"><div class="stat-icon">📉</div><div class="stat-value" style="color:${minFinal < callLine ? 'var(--danger-red)' : 'var(--warn-yellow)'}">${minFinal.toFixed(0)}%</div><div class="stat-label">最差情境維持率</div></div>
+                <div class="pledge-stat-card"><div class="stat-icon">⚠️</div><div class="stat-value" style="color:${breachPct > 10 ? 'var(--danger-red)' : breachPct > 0 ? 'var(--warn-yellow)' : 'var(--safe-green)'}">${breachPct}%</div><div class="stat-label">觸發追繳機率 (${breachCount}/${paths})</div></div>
+                <div class="pledge-stat-card"><div class="stat-icon">📊</div><div class="stat-value" style="color:var(--text-primary)">${p5[months].toFixed(0)}% ~ ${p95[months].toFixed(0)}%</div><div class="stat-label">90% 信賴區間 (第18月)</div></div>
+            `;
+            }
+        })();
+    </script>
+</body>
+
+</html>

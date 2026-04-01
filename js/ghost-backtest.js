@@ -107,7 +107,7 @@ class GhostBacktest {
                 dividendTotal: Math.round(monthDividend),
                 dividendShares: Math.round(dividendShares * 10000) / 10000,
                 stockDividendShares: Math.round(stockDividendShares * 10000) / 10000,
-                totalShares: Math.round(totalShares * 10000) / 10000,
+                shares: Math.round(totalShares * 10000) / 10000,
                 totalInvested: Math.round(totalInvested),
                 marketValue: Math.round(currentValue),
                 totalDividendsCash: Math.round(totalDividendsCash),
@@ -441,6 +441,7 @@ class GhostBacktest {
         const aggMonthly = {};
         const aggYearly = {};
 
+        let isFirstStock = true;
         for (const r of resultsList) {
             totalInvested += r.result.totalInvested || 0;
             finalMarketValue += r.result.finalMarketValue || 0;
@@ -453,19 +454,20 @@ class GhostBacktest {
 
             for (const m of (r.result.monthlyDetails || [])) {
                 if (!aggMonthly[m.date]) {
-                    aggMonthly[m.date] = { date: m.date, marketValue: 0, totalInvested: 0, dividendThisMonth: 0, totalDividends: 0, totalReturn: 0, price: m.price };
+                    aggMonthly[m.date] = { date: m.date, marketValue: 0, totalInvested: 0, dividendThisMonth: 0, totalDividends: 0, totalReturn: 0, price: m.price, shares: m.shares };
+                } else if (!isFirstStock) {
+                    // It's a true multi-stock portfolio, meaningless to display a single price/share breakdown in the tooltip
+                    aggMonthly[m.date].price = undefined;
+                    aggMonthly[m.date].shares = undefined;
                 }
                 aggMonthly[m.date].marketValue += m.marketValue || m.currentValue || 0;
                 aggMonthly[m.date].totalInvested += m.totalInvested || m.invested || 0;
                 aggMonthly[m.date].dividendThisMonth += m.dividendThisMonth || 0;
                 aggMonthly[m.date].totalDividends += m.totalDividends || 0;
                 aggMonthly[m.date].totalReturn += m.totalReturn || 0;
-                
-                // If this is a single stock portfolio, preserve the monthly price to plot on charts
-                if (resultsList.length === 1) {
-                    aggMonthly[m.date].price = m.price;
-                }
             }
+
+            isFirstStock = false;
 
             const yearlySource = isBuyAndHold ? r.result.yearlyDividends : r.result.yearlyDetails;
             for (const y of (yearlySource || [])) {
@@ -505,7 +507,9 @@ class GhostBacktest {
                 dividends: r.result.totalDividendsCash + (r.result.totalDividendsReinvested || 0),
                 totalReturn: r.result.totalReturn,
                 roi: r.result.roi,
-                irr: r.result.irr
+                irr: r.result.irr,
+                finalPrice: r.result.finalPrice,
+                shares: r.result.totalShares || r.result.currentShares
             });
         }
 

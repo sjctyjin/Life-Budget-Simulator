@@ -440,41 +440,32 @@
     width: 100%;
     border-collapse: collapse;
     font-size: 0.9rem;
-    table-layout: fixed; /* Ensures even column distribution */
+    table-layout: auto; /* Allow flexible column widths for horizontal scrolling */
     margin-bottom: 20px;
 }
 
 .ghost-table th {
     text-align: right;
-    padding: 12px 8px;
+    padding: 12px 10px;
     color: var(--text-dim);
     border-bottom: 2px solid var(--border-accent);
     font-weight: 600;
     font-size: 0.85rem;
-    white-space: normal; /* Allow header text to wrap */
+    white-space: nowrap; /* Prevent headers from squishing */
     vertical-align: middle;
 }
 
 .ghost-table th:first-child {
     text-align: left;
-    width: 12%; /* Ticker column doesn't need much space */
 }
-
-/* Specific distribution for the 7-column portfolio table */
-.ghost-table th:nth-child(2) { width: 10%; } /* Weight */
-.ghost-table th:nth-child(3) { width: 15%; } /* Invested */
-.ghost-table th:nth-child(4) { width: 18%; } /* Dividends - needs more space */
-.ghost-table th:nth-child(5) { width: 15%; } /* MarketValue */
-.ghost-table th:nth-child(6) { width: 15%; } /* ROI */
-.ghost-table th:nth-child(7) { width: 15%; } /* IRR */
 
 
 .ghost-table td {
-    padding: 12px 8px;
+    padding: 12px 10px;
     border-bottom: 1px solid rgba(124, 58, 237, 0.05);
     font-family: var(--font-en);
     text-align: right;
-    word-break: break-all;
+    white-space: nowrap; /* Prevent data cells from squishing */
 }
 
 .ghost-table td:first-child {
