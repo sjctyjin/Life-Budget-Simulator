@@ -279,8 +279,128 @@ const ScannerEngine = (() => {
             }
             if (last === null || prev === null) return 0;
             return last > prev ? 1 : last < prev ? -1 : 0;
+        },
+
+        /**
+         * Calculate price slope over last N days
+         */
+        calcSlope(data, period = 5) {
+            const len = data.length;
+            if (len < period) return 0;
+            const y2 = data[len - 1];
+            const y1 = data[len - period];
+            if (y1 === 0 || y1 === null || y2 === null) return 0;
+            return (y2 - y1) / y1;
+        },
+
+        /**
+         * Calculate standard deviation
+         */
+        calcStdDev(data, period = 20) {
+            const len = data.length;
+            if (len < period) return 0;
+            const slice = data.slice(-period).filter(v => v !== null);
+            const mean = slice.reduce((a, b) => a + b, 0) / slice.length;
+            const variance = slice.reduce((a, b) => a + Math.pow(b - mean, 2), 0) / slice.length;
+            return Math.sqrt(variance);
         }
     };
+
+    // ==================== Perspective Analyzer ====================
+    function diagnoseYouTubeStrategy(result, benchmarkResult = null) {
+        if (!result || !result.chartData) return null;
+
+        const { indicators, chartData, sr } = result;
+        const closes = chartData.closes;
+        const volumes = chartData.volumes;
+        const highs = chartData.highs;
+        const lows = chartData.lows;
+        const len = closes.length;
+        const lastPrice = closes[len - 1];
+        const lastVolRatio = indicators.volRatio;
+        const lastRet1d = TC.calcReturn(closes, 1);
+
+        const diagnosis = {
+            exhaustion: {
+                score: 0,
+                items: [
+                    { 
+                        id: 'vol_price_dead', 
+                        label: '爆量卻不漲', 
+                        desc: '成交量異常放大但股價停滯，暗示主力出貨',
+                        active: lastVolRatio > 2.0 && Math.abs(lastRet1d) < 0.5 
+                    },
+                    { 
+                        id: 'ma5_far', 
+                        label: '偏離均線過遠', 
+                        desc: '股價乖離 MA5 過大，隨時有回測需求',
+                        active: (lastPrice - (indicators.ma5 || lastPrice)) / (indicators.ma5 || 1) > 0.07 
+                    },
+                    { 
+                        id: 'no_sector_support', 
+                        label: '缺乏板塊助攻', 
+                        desc: '個股獨漲但大盤/族群未跟進，延續性差',
+                        active: false 
+                    },
+                    { 
+                        id: 'near_ceiling', 
+                        label: '接近前波天花板', 
+                        desc: '靠近前期密集壓力區，突破難度高',
+                        active: sr.resistances.length > 0 && (sr.resistances[0].price - lastPrice) / lastPrice < 0.02 && (sr.resistances[0].price > lastPrice)
+                    }
+                ]
+            },
+            bottoming: {
+                score: 0,
+                items: [
+                    { 
+                        id: 'sideways_long', 
+                        label: '橫盤整理時間足夠長', 
+                        desc: '波動極度收斂，進入窒息段',
+                        active: TC.calcStdDev(closes, 20) / (lastPrice || 1) < 0.015 
+                    },
+                    { 
+                        id: 'shrinking_vol', 
+                        label: '成交量持續萎縮', 
+                        desc: '賣壓竭盡，市場靜待變盤',
+                        active: lastVolRatio < 0.65 
+                    },
+                    { 
+                        id: 'no_new_low', 
+                        label: '不再創出新低', 
+                        desc: '跌勢止穩，支撐位有撐',
+                        active: closes[len - 1] >= Math.min(...lows.slice(-10)) && TC.calcSlope(closes, 10) > -0.01 
+                    },
+                    { 
+                        id: 'slope_flat', 
+                        label: '下跌斜率變平緩', 
+                        desc: '下跌動能耗盡，趨勢轉向橫盤',
+                        active: TC.calcSlope(closes, 5) > TC.calcSlope(closes.slice(0, -5), 5) && TC.calcSlope(closes, 5) > -0.005 
+                    },
+                    { 
+                        id: 'anomaly_spike', 
+                        label: '開始出現異動現象', 
+                        desc: '底部突發大陽線試探，主力進場訊號',
+                        active: lastRet1d > 3.0 && TC.calcStdDev(closes.slice(0, -1), 15) / (closes[len-2] || 1) < 0.02 
+                    }
+                ]
+            }
+        };
+
+        if (benchmarkResult && benchmarkResult.chartData) {
+            const bCloses = benchmarkResult.chartData.closes;
+            const bRet5 = TC.calcReturn(bCloses, 5);
+            const sRet5 = TC.calcReturn(closes, 5);
+            if (sRet5 > 5 && bRet5 < 1.5) {
+                diagnosis.exhaustion.items.find(i => i.id === 'no_sector_support').active = true;
+            }
+        }
+
+        diagnosis.exhaustion.score = diagnosis.exhaustion.items.filter(i => i.active).length;
+        diagnosis.bottoming.score = diagnosis.bottoming.items.filter(i => i.active).length;
+
+        return diagnosis;
+    }
 
     // ==================== Factor Scorer ====================
     function scoreStock(days, weights = null) {
@@ -517,6 +637,7 @@ const ScannerEngine = (() => {
         scoreStock,
         classifyStock,
         generateAdvice,
+        diagnoseYouTubeStrategy
     };
 })();
 

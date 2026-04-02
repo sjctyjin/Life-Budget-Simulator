@@ -181,6 +181,18 @@
         adviceHtml += `</ul>`;
         $('result-advice').innerHTML = adviceHtml;
 
+        // YouTube Diagnosis
+        if (stockData.benchmark) {
+            const diagnosis = ScannerEngine.diagnoseYouTubeStrategy(result, stockData.benchmark);
+            renderStrategyDiagnosis(diagnosis);
+            $('result-diagnosis-container').style.display = 'block';
+        } else {
+            // Fallback: try without benchmark
+            const diagnosis = ScannerEngine.diagnoseYouTubeStrategy(result, null);
+            renderStrategyDiagnosis(diagnosis);
+            $('result-diagnosis-container').style.display = 'block';
+        }
+
         // Price + MA chart
         renderPriceChart(chartData);
 
@@ -188,6 +200,25 @@
         setTimeout(() => {
             $('analysis-results').scrollIntoView({ behavior: 'smooth', block: 'start' });
         }, 100);
+    }
+
+    function renderStrategyDiagnosis(diagnosis) {
+        if (!diagnosis) return;
+
+        const renderItems = (items) => {
+            return items.map(item => `
+                <div class="diag-item ${item.active ? 'active' : ''}">
+                    <div class="diag-indicator"></div>
+                    <div class="diag-content">
+                        <div class="diag-label">${item.label}</div>
+                        <div class="diag-desc">${item.desc}</div>
+                    </div>
+                </div>
+            `).join('');
+        };
+
+        $('diag-exhaustion-list').innerHTML = renderItems(diagnosis.exhaustion.items);
+        $('diag-bottoming-list').innerHTML = renderItems(diagnosis.bottoming.items);
     }
 
     // ==================== Chart Renderers ====================

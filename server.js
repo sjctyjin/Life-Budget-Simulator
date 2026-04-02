@@ -432,6 +432,22 @@ app.get('/api/stock/:symbol/analysis', async (req, res) => {
             return res.status(404).json({ error: `找不到 ${symbol} 的技術分析資料` });
         }
 
+        // --- Fetch Benchmark (^TWII for Taiwan stocks) ---
+        if (isTaiwanCode) {
+            try {
+                const benchmarkData = await fetchAnalysisData('^TWII', months);
+                if (benchmarkData && benchmarkData.days) {
+                    data.benchmark = {
+                        symbol: '^TWII',
+                        shortName: '加權指數',
+                        days: benchmarkData.days
+                    };
+                }
+            } catch (e) {
+                console.warn(`[API] Failed to fetch benchmark for ${symbol}:`, e.message);
+            }
+        }
+
         res.json(data);
     } catch (err) {
         console.error(`Error fetching analysis for ${symbol}:`, err.message);
