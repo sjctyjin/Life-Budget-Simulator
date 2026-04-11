@@ -24,6 +24,7 @@ class FinancialSimulator {
         this.fireAge = config.fireAge || 35;
         this.fireAgeOverride = config.fireAgeOverride || null;
         this.enableSWR = config.enableSWR !== false; // Default to true
+        this.enableGK = config.enableGK || false; // Guyton-Klinger dynamic withdrawal guardrails
 
         // Pre-calculate baseline values (if any)
         // this.precalculatedIncome = this.getYearlyIncome(); // This line was in the diff but seems to be a placeholder or incomplete. Keeping it commented out as it's not a valid method call here.
@@ -182,12 +183,25 @@ class FinancialSimulator {
         let yearlyIncomeForTax = 0;
         let previousYearIncomeForTax = 0;
 
+        // --- Guyton-Klinger (GK) Dynamic Withdrawal State ---
+        let gkInitialWithdrawalRate = null; // Set on first retirement year
+        let gkWithdrawalMultiplier = 1.0;   // Cumulative adjustment factor
+        let gkLastYearPortfolioReturn = 0;  // Track last year's portfolio return %
+        let gkYearStartNetWorth = 0;        // Net worth at the start of each year
+        let gkRetirementStarted = false;    // Has retirement phase begun?
+        let gkAdjustmentLog = '';            // Log for monthly detail
+
         for (let month = 1; month <= totalMonths; month++) {
             const yearIndex = Math.floor((month - 1) / 12);
             const monthInYear = ((month - 1) % 12) + 1; // 1-12
             const currentAge = this.age + yearIndex;
             const calendarYear = this.currentYear + yearIndex;
-            const inflationFactor = Math.pow(1 + this.inflationRate, yearIndex);
+            let inflationFactor = Math.pow(1 + this.inflationRate, yearIndex);
+
+            // Reset GK adjustment log each month
+            gkAdjustmentLog = '';
+
+            const effectiveRetireAge = this.fireAgeOverride !== null ? this.fireAgeOverride : this.retireAge;
 
             // Annual salary raise & Property Appreciation
             if (month > 1 && monthInYear === 1) {
@@ -204,10 +218,100 @@ class FinancialSimulator {
                     const totalPaid = ins.yearlyPremium * yearsPaid;
                     cashBalance += totalPaid;
                 }
+
+                // --- GUYTON-KLINGER ANNUAL GUARDRAIL EVALUATION ---
+                if (this.enableGK && currentAge >= effectiveRetireAge) {
+                    const currentNetWorth = cashBalance + getStockValue() + propertyValue - getTotalDebtRemaining();
+
+                    if (!gkRetirementStarted) {
+                        // First year of retirement: establish baseline
+                        gkRetirementStarted = true;
+                        const annualExpenses = (fixedExpenseBase * 12) * inflationFactor;
+                        gkInitialWithdrawalRate = currentNetWorth > 0 ? annualExpenses / currentNetWorth : 0.04;
+                        gkYearStartNetWorth = currentNetWorth;
+                        gkAdjustmentLog = 'GK 啟動：初始提領率 ' + (gkInitialWithdrawalRate * 100).toFixed(2) + '%';
+                    } else {
+                        // Calculate last year's portfolio return
+                        gkLastYearPortfolioReturn = gkYearStartNetWorth > 0
+                            ? (currentNetWorth - gkYearStartNetWorth) / gkYearStartNetWorth
+                            : 0;
+
+                        // Rule 1: Inflation Rule — freeze inflation adjustment if last year's return was negative
+                        if (gkLastYearPortfolioReturn < 0) {
+                            // Override inflationFactor to last year's level (freeze)
+                            inflationFactor = Math.pow(1 + this.inflationRate, yearIndex - 1);
+                            gkAdjustmentLog = '❄️ 通膨凍結（去年報酬 ' + (gkLastYearPortfolioReturn * 100).toFixed(1) + '%）';
+                        }
+
+                        // Rule 2 & 3: Capital Preservation & Prosperity guardrails
+                        const currentAnnualExpenses = (fixedExpenseBase * 12) * inflationFactor * gkWithdrawalMultiplier;
+                        const currentWithdrawalRate = currentNetWorth > 0 ? currentAnnualExpenses / currentNetWorth : 0;
+
+                        if (gkInitialWithdrawalRate > 0) {
+                            const ratio = currentWithdrawalRate / gkInitialWithdrawalRate;
+
+                            if (ratio > 1.20) {
+                                // Capital Preservation: withdrawal rate too high → cut 10%
+                                gkWithdrawalMultiplier *= 0.90;
+                                gkAdjustmentLog = '🛡️ 保本規則觸發：提領率 '
+                                    + (currentWithdrawalRate * 100).toFixed(2)
+                                    + '% 超過初始 120%，削減 10%';
+                            } else if (ratio < 0.80) {
+                                // Prosperity: withdrawal rate too low → increase 10%
+                                gkWithdrawalMultiplier *= 1.10;
+                                gkAdjustmentLog = '🎉 繁榮規則觸發：提領率 '
+                                    + (currentWithdrawalRate * 100).toFixed(2)
+                                    + '% 低於初始 80%，增加 10%';
+                            }
+                        }
+
+                        gkYearStartNetWorth = currentNetWorth;
+                    }
+                }
+            }
+
+            // --- GK JANUARY LUMP-SUM WITHDRAWAL ---
+            // After GK evaluation, proactively liquidate stocks to pre-fund the year's expenses
+            let gkAnnualGoal = 0;
+            let gkActualLiquidation = 0;
+            const gkLiquidationDetails = [];
+
+            if (this.enableGK && currentAge >= effectiveRetireAge && monthInYear === 1) {
+                // Estimate this year's total expenses (fixed + variable + debt + decision)
+                const gkFactor = gkWithdrawalMultiplier;
+                const estFixedAnnual = this.fixedExpenses.reduce((s, e) => {
+                    if (e.isInvestment) return s; // Exclude DCA items
+                    return s + Math.round(e.amount * inflationFactor * gkFactor);
+                }, 0) * 12;
+                const estVarAnnual = this.variableExpenses.reduce((s, e) => s + e.amount, 0) * inflationFactor * 12;
+                const estDebtAnnual = activeDebts.reduce((s, d) => {
+                    return s + (d.periodsLeft > 0 ? Math.min(d.monthlyPayment, d.remaining) * Math.min(12, d.periodsLeft) : 0);
+                }, 0);
+
+                gkAnnualGoal = Math.round(estFixedAnnual + estVarAnnual + estDebtAnnual);
+
+                // How much cash do we need to top-up?
+                const cashDeficit = gkAnnualGoal - cashBalance;
+
+                if (gkAdjustmentLog) {
+                    gkAdjustmentLog += '\n';
+                }
+
+                if (cashDeficit > 0 && getStockValue() > 0) {
+                    // Proactively sell stocks to cover the annual expense budget
+                    const raised = liquidateStocks(cashDeficit, gkLiquidationDetails);
+                    gkActualLiquidation = Math.round(raised);
+                    cashBalance += raised;
+                    gkAdjustmentLog += '💰 年度提領：目標 NT$ ' + gkAnnualGoal.toLocaleString()
+                        + '，實際變現 NT$ ' + gkActualLiquidation.toLocaleString();
+                } else {
+                    // Cash is sufficient, no selling needed
+                    gkAdjustmentLog += '💰 年度提領計畫：目標 NT$ ' + gkAnnualGoal.toLocaleString()
+                        + '（現金充足，無需變現）';
+                }
             }
 
             // --- INCOME ---
-            const effectiveRetireAge = this.fireAgeOverride !== null ? this.fireAgeOverride : this.retireAge;
             const salaryIncome = currentAge < effectiveRetireAge ? monthlyIncome : 0;
             let bonusIncome = 0;
             if (monthInYear === 12 && this.bonusMonths > 0 && currentAge < effectiveRetireAge) {
@@ -253,8 +357,11 @@ class FinancialSimulator {
                 }
             }
 
+            // GK withdrawal multiplier applies to living expenses during retirement
+            const gkFactor = (this.enableGK && currentAge >= effectiveRetireAge) ? gkWithdrawalMultiplier : 1.0;
+
             for (const e of this.fixedExpenses) {
-                const val = Math.round(e.amount * inflationFactor);
+                const val = Math.round(e.amount * inflationFactor * gkFactor);
                 fixedItems[e.name] = val;
                 totalFixed += val;
             }
@@ -485,6 +592,11 @@ class FinancialSimulator {
                     debtToLiquidRatio: currentLiquidAssets > 0 ? Math.round((getTotalDebtRemaining() / currentLiquidAssets) * 100) : 999,
                     liquidations: liquidations,
                     skippedDCA: skippedDCA,
+                    gkAdjustment: gkAdjustmentLog || '',
+                    gkWithdrawalMultiplier: gkWithdrawalMultiplier,
+                    gkAnnualGoal: gkAnnualGoal,
+                    gkActualLiquidation: gkActualLiquidation,
+                    gkLiquidationDetails: gkLiquidationDetails,
                 });
             }
         }

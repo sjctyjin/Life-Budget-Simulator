@@ -147,6 +147,23 @@
                         <p class="form-hint" style="margin-top: 8px;">退休後自動將資產轉為保守配置 (預設年化報酬 4%，波動 6%)，避免將 100%
                             資金暴露於股市高風險中，更貼近真實退休規劃。</p>
                     </div>
+
+                    <div class="form-group"
+                        style="margin-top: 10px; border: 1px solid var(--border-color); padding: 15px; border-radius: 8px;">
+                        <div style="display: flex; align-items: center;">
+                            <input type="checkbox" id="toggle-gk"
+                                style="width: 20px; height: 20px; margin-right: 10px;">
+                            <label for="toggle-gk"
+                                style="font-size: 1.1rem; cursor: pointer; color: var(--text-bright); font-weight: bold;">⚖️
+                                啟用 GK 護欄動態提領策略</label>
+                        </div>
+                        <p class="form-hint" style="margin-top: 8px;">
+                            採用 Guyton-Klinger 護欄規則，根據市場表現動態調整退休提領金額：<br>
+                            <span style="color: var(--accent-blue);">❄️ 通膨規則</span>：市場下跌年份凍結通膨調薪｜
+                            <span style="color: var(--accent-red);">🛡️ 保本規則</span>：提領率過高時削減 10%｜
+                            <span style="color: var(--accent-green);">🎉 繁榮規則</span>：提領率過低時增加 10%
+                        </p>
+                    </div>
                 </div>
 
                 <!-- Step 2: Fixed Expenses -->
@@ -184,6 +201,33 @@
                     </div>
                     <div class="expense-list" id="stock-list"></div>
                     <button class="btn-add" id="btn-add-stock">+ 新增股票</button>
+
+                    <!-- Portfolio Summary Section -->
+                    <div id="portfolio-summary-container" style="display: none; margin-top: 20px; padding: 20px; background: rgba(30, 30, 40, 0.4); border-radius: 12px; border: 1px solid var(--border-color);">
+                        <h3 style="margin-top: 0; font-size: 1.1rem; color: var(--text-bright); text-align: center;">📊 資產配置總覽</h3>
+                        <div style="display: flex; flex-wrap: wrap; justify-content: space-around; align-items: center; gap: 20px; margin-top: 15px;">
+                            <!-- Chart Container -->
+                            <div style="position: relative; width: 140px; height: 140px;">
+                                <canvas id="chart-portfolio"></canvas>
+                            </div>
+                            <!-- Stats Container -->
+                            <div style="flex: 1; min-width: 200px; font-size: 0.95rem;">
+                                <div style="display: flex; justify-content: space-between; margin-bottom: 8px;">
+                                    <span style="color: var(--text-dim);">💵 現金存款：</span>
+                                    <span id="summary-cash-val" style="color: var(--accent-cyan); font-weight: bold;">NT$ 0</span>
+                                </div>
+                                <div style="display: flex; justify-content: space-between; margin-bottom: 8px;">
+                                    <span style="color: var(--text-dim);">📈 股票總值：</span>
+                                    <span id="summary-stock-val" style="color: var(--accent-purple); font-weight: bold;">NT$ 0</span>
+                                </div>
+                                <div style="border-top: 1px dashed var(--border-color); margin: 10px 0;"></div>
+                                <div style="display: flex; justify-content: space-between;">
+                                    <span style="color: var(--text-bright);">💰 總流動資產：</span>
+                                    <span id="summary-total-val" style="color: var(--text-bright); font-weight: bold; font-size: 1.1rem;">NT$ 0</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
 
                     <div class="section-divider mt-2">
                         <h3 class="section-subtitle">💳 負債/貸款</h3>

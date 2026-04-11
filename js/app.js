@@ -257,6 +257,13 @@
                 divDisplay = `<span class="stock-vol" style="color:var(--accent-purple)">預估殖利率 ${(st.dividendYield * 100).toFixed(2)}% | 每股配息: ${perShareStr} (配息月: ${monthsStr})</span>`;
             }
 
+            let valDisplay = '';
+            if (st.currentPrice > 0 && st.shares > 0) {
+                const exRate = st.exchangeRate || (st.currency === 'USD' ? 32 : 1);
+                const currentValNTD = Math.round(st.currentPrice * st.shares * exRate);
+                valDisplay = `<span class="stock-vol" style="color:var(--accent-green); font-weight:bold;">市值: NT$ ${currentValNTD.toLocaleString()}</span>`;
+            }
+
             div.innerHTML = `
                 <div class="stock-row">
                     <div class="form-group" style="flex:1">
@@ -283,6 +290,7 @@
                     <span class="stock-vol text-cyan">${st.cagr !== undefined ? `歷史年化(CAGR) ${(st.cagr * 100).toFixed(2)}%` : ''}</span>
                     <span class="stock-vol">${volDisplay}</span>
                     ${divDisplay}
+                    ${valDisplay}
                     <span class="stock-exchange">${st.exchangeName || ''}</span>
                 </div>
             `;
@@ -311,6 +319,86 @@
                 : '';
             const btnFetchAll = document.getElementById('btn-fetch-all');
             if (btnFetchAll) btnFetchAll.addEventListener('click', fetchAllStockPrices);
+        }
+        
+        updatePortfolioSummary();
+    }
+
+    let portfolioPieChart = null;
+
+    function updatePortfolioSummary() {
+        // Ensure event listener is attached to savings input
+        const savingsInput = document.getElementById('savings');
+        if (savingsInput && !savingsInput.dataset.boundPortfolio) {
+            savingsInput.addEventListener('input', updatePortfolioSummary);
+            savingsInput.dataset.boundPortfolio = 'true';
+        }
+
+        const container = document.getElementById('portfolio-summary-container');
+        if (!container) return;
+
+        const cash = parseFloat(savingsInput?.value) || 0;
+        let totalStocks = 0;
+
+        state.stocks.forEach(st => {
+            if (st.currentPrice > 0 && st.shares > 0) {
+                const exRate = st.exchangeRate || (st.currency === 'USD' ? 32 : 1);
+                totalStocks += (st.currentPrice * st.shares * exRate);
+            }
+        });
+
+        // Always show if we have stock entries (even if not fetched) or cash
+        if (state.stocks.length > 0 || cash > 0) {
+            container.style.display = 'block';
+        } else {
+            container.style.display = 'none';
+            return;
+        }
+
+        const sumCash = Math.round(cash);
+        const sumStocks = Math.round(totalStocks);
+        const total = sumCash + sumStocks;
+
+        document.getElementById('summary-cash-val').textContent = 'NT$ ' + sumCash.toLocaleString();
+        document.getElementById('summary-stock-val').textContent = 'NT$ ' + sumStocks.toLocaleString();
+        document.getElementById('summary-total-val').textContent = 'NT$ ' + total.toLocaleString();
+
+        const ctx = document.getElementById('chart-portfolio');
+        if (!ctx) return;
+
+        if (portfolioPieChart) {
+            portfolioPieChart.data.datasets[0].data = [sumCash, sumStocks];
+            portfolioPieChart.update();
+        } else {
+            portfolioPieChart = new Chart(ctx, {
+                type: 'doughnut',
+                data: {
+                    labels: ['現金存款', '股票持倉'],
+                    datasets: [{
+                        data: [sumCash, sumStocks],
+                        backgroundColor: ['#06b6d4', '#8b5cf6'],
+                        borderWidth: 0,
+                        hoverOffset: 4
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    cutout: '70%',
+                    plugins: {
+                        legend: { display: false },
+                        tooltip: {
+                            callbacks: {
+                                label: function(context) {
+                                    const val = context.raw;
+                                    const percent = total > 0 ? ((val / total) * 100).toFixed(1) : 0;
+                                    return ` NT$ ${val.toLocaleString()} (${percent}%)`;
+                                }
+                            }
+                        }
+                    }
+                }
+            });
         }
     }
 
@@ -704,7 +792,8 @@
             insuranceSurrenderYear: window._surrenderYearOverride || null,
             fireAge: parseInt(document.getElementById('fire-age').value) || 35,
             fireAgeOverride: window._fireAgeOverride || null,
-            enableSWR: document.getElementById('toggle-swr') ? document.getElementById('toggle-swr').checked : true
+            enableSWR: document.getElementById('toggle-swr') ? document.getElementById('toggle-swr').checked : true,
+            enableGK: document.getElementById('toggle-gk') ? document.getElementById('toggle-gk').checked : false
         };
 
         if (income <= 0) { alert('請輸入月收入'); showStep(0); return; }
@@ -714,6 +803,15 @@
         if (swrToggle && !swrToggle.dataset.bound) {
             swrToggle.dataset.bound = 'true';
             swrToggle.addEventListener('change', () => {
+                window._isSliderReRun = true;
+                startSimulation();
+            });
+        }
+
+        const gkToggle = document.getElementById('toggle-gk');
+        if (gkToggle && !gkToggle.dataset.bound) {
+            gkToggle.dataset.bound = 'true';
+            gkToggle.addEventListener('change', () => {
                 window._isSliderReRun = true;
                 startSimulation();
             });
@@ -1140,14 +1238,36 @@
             }
 
             let liquidationTooltip = "現金存款 (含當月淨現金流)";
-            if (m.liquidations && m.liquidations.length > 0) {
+            if (m.gkAnnualGoal > 0) {
+                // GK withdrawal plan exists for this month
+                if (m.gkActualLiquidation > 0) {
+                    liquidationTooltip = "💰【GK 年度動態提領 — 賣股變現】\n"
+                        + "年度開銷目標: NT$ " + m.gkAnnualGoal.toLocaleString() + "\n"
+                        + "實際變現金額: NT$ " + m.gkActualLiquidation.toLocaleString() + "\n"
+                        + "---\n"
+                        + m.gkLiquidationDetails.map(l =>
+                            `[${l.symbol}] 賣出: ${l.shares.toLocaleString(undefined, { maximumFractionDigits: 2 })} 股 | 套現: ${fmtCur(l.value)}`
+                        ).join('\n');
+                } else {
+                    liquidationTooltip = "💰【GK 年度動態提領 — 現金充足】\n"
+                        + "年度開銷目標: NT$ " + m.gkAnnualGoal.toLocaleString() + "\n"
+                        + "現金餘額充足，本年無需變現股票。\n"
+                        + "GK 調整倍率: " + (m.gkWithdrawalMultiplier || 1).toFixed(3) + "x";
+                }
+            } else if (m.liquidations && m.liquidations.length > 0) {
                 liquidationTooltip = "⚠️【警告：現金不足，強制變賣股票】\n" + m.liquidations.map(l =>
                     `[${l.symbol}] 賣出: ${l.shares.toLocaleString(undefined, { maximumFractionDigits: 2 })} 股 | 套現: ${fmtCur(l.value)}`
                 ).join('\n');
             }
 
-            html += `<tr>
-                    <td>${m.monthInYear} 月</td>
+            // GK adjustment badge for the month cell
+            const hasGK = m.gkAdjustment && m.gkAdjustment.trim();
+            const gkMonthTitle = hasGK ? m.gkAdjustment : '';
+            const gkMonthBadge = hasGK ? ' ⚖️' : '';
+            const cashHighlight = m.gkAnnualGoal > 0;
+
+            html += `<tr${cashHighlight ? ' style="background: rgba(6, 182, 212, 0.08);"' : ''}>
+                    <td title="${gkMonthTitle}">${m.monthInYear} 月${gkMonthBadge}</td>
                     <td class="text-green" title="本薪">${fmtCur(m.income.salary)}</td>
                     <td class="${m.income.bonus > 0 ? 'text-yellow' : ''}" title="年終">${m.income.bonus > 0 ? fmtCur(m.income.bonus) : '-'}</td>
                     <td class="${m.income.insuranceDividend > 0 ? 'text-yellow' : ''}" title="保單年度分紅">${m.income.insuranceDividend > 0 ? fmtCur(m.income.insuranceDividend) : '-'}</td>
@@ -1163,7 +1283,7 @@
                     <td class="${m.expenses.totalDebt > 0 ? 'text-red' : ''}" title="${debtDetails}">${m.expenses.totalDebt > 0 ? fmtCur(m.expenses.totalDebt) : '-'}</td>
                     <td class="${m.expenses.decision > 0 ? 'text-red' : ''}" title="${decisionTooltip}">${m.expenses.decision > 0 ? fmtCur(m.expenses.decision) : '-'}</td>
                     <td class="${cf >= 0 ? 'text-green' : 'text-red'}" style="font-weight:600">${cf >= 0 ? '+' : ''}${fmtCur(cf)}</td>
-                    <td class="${m.liquidations.length > 0 ? 'text-red underline' : ''}" title="${liquidationTooltip}">${fmtCur(m.cashBalance)}</td>
+                    <td class="${cashHighlight ? 'text-cyan font-bold' : m.liquidations.length > 0 ? 'text-red underline' : ''}" title="${liquidationTooltip}" style="${cashHighlight ? 'font-weight:700;' : ''}">${fmtCur(m.cashBalance)}${cashHighlight ? ' 💰' : ''}</td>
                     <td title="${stockDetails}">${fmtCur(m.stockValue)}</td>
                     <td style="font-weight:600; color: var(--accent-blue);">${fmtCur(m.liquidAssets)}</td>
                     <td style="font-weight:600">${fmtCur(m.netWorth)}</td>
@@ -1178,7 +1298,8 @@
         const yearlySums = {
             salary: 0, bonus: 0, insuranceDividend: 0, stockDividendIncome: 0, stockReturn: 0,
             totalFixed: 0, totalVariable: 0, totalDebt: 0, decision: 0, netCashFlow: 0,
-            fixedDetails: {}, varDetails: {}, debtDetails: {}, dividendDetails: {}, stockReturnDetails: {}
+            fixedDetails: {}, varDetails: {}, debtDetails: {}, dividendDetails: {}, stockReturnDetails: {},
+            gkAnnualGoal: 0, gkActualLiquidation: 0, gkAdjustments: []
         };
 
         for (const m of months) {
@@ -1192,6 +1313,11 @@
             yearlySums.totalDebt += m.expenses.totalDebt;
             yearlySums.decision += m.expenses.decision;
             yearlySums.netCashFlow += m.netCashFlow;
+
+            // GK tracking
+            if (m.gkAnnualGoal > 0) yearlySums.gkAnnualGoal = m.gkAnnualGoal;
+            if (m.gkActualLiquidation > 0) yearlySums.gkActualLiquidation = m.gkActualLiquidation;
+            if (m.gkAdjustment && m.gkAdjustment.trim()) yearlySums.gkAdjustments.push(m.gkAdjustment);
 
             // Aggregate details
             for (const [k, v] of Object.entries(m.expenses.fixed)) yearlySums.fixedDetails[k] = (yearlySums.fixedDetails[k] || 0) + v;
@@ -1246,6 +1372,24 @@
             <td class="${yearlySums.netCashFlow >= 0 ? 'text-green' : 'text-red'}">${yearlySums.netCashFlow >= 0 ? '+' : ''}${fmtCur(yearlySums.netCashFlow)}</td>
             <td colspan="4" style="text-align: right; color: var(--text-dim); font-size: 0.85rem;">以上為年底結算數字</td>
         </tr>`;
+
+        // GK Annual Withdrawal Summary Row (show whenever GK plan exists)
+        if (yearlySums.gkAnnualGoal > 0) {
+            const gkSummaryTooltip = yearlySums.gkAdjustments.join('\n');
+            const gkMultiplier = months.find(m => m.gkWithdrawalMultiplier !== undefined)?.gkWithdrawalMultiplier || 1.0;
+            const liquidationText = yearlySums.gkActualLiquidation > 0
+                ? `實際變現: NT$ ${yearlySums.gkActualLiquidation.toLocaleString()}`
+                : '現金充足，無需變現';
+            html += `<tr style="background: rgba(6, 182, 212, 0.12); border-top: 1px solid rgba(6, 182, 212, 0.25); font-size: 0.9rem;">
+                <td colspan="11" title="${gkSummaryTooltip}" style="text-align: left; padding: 8px 12px; color: var(--accent-cyan);">
+                    ⚖️ <strong>GK 年度動態提領</strong>｜
+                    目標: NT$ ${yearlySums.gkAnnualGoal.toLocaleString()}｜
+                    ${liquidationText}｜
+                    調整倍率: ${gkMultiplier.toFixed(3)}x
+                </td>
+                <td colspan="6" style="text-align: right; padding: 8px 12px; color: var(--text-dim); font-size: 0.8rem;">hover 查看護欄觸發詳情</td>
+            </tr>`;
+        }
 
         html += `</tbody></table></div>`;
 
@@ -1404,7 +1548,7 @@
             }
             let csvString = "\uFEFF"; // Include BOM for Excel UTF-8
             // Header row
-            csvString += "年齡,年份,月份,薪資,獎金,保單分紅,現金股利,未實現損益,固定支出,變動支出,貸款還款,決策支出,淨現金流,現金存款,股票市值,流動資產,負債餘額,總淨資產,槓桿倍率,負債資產比\n";
+            csvString += "年齡,年份,月份,薪資,獎金,保單分紅,現金股利,未實現損益,固定支出,變動支出,貸款還款,決策支出,淨現金流,現金存款,股票市值,流動資產,負債餘額,總淨資產,槓桿倍率,負債資產比,GK年度目標,GK實際變現,GK調整倍率,GK護欄紀錄\n";
 
             // Data rows
             path.monthlyDetails.forEach(m => {
@@ -1428,7 +1572,11 @@
                     m.debtRemaining,
                     m.netWorth,
                     m.leverageRatio || 0,
-                    m.debtToLiquidRatio === 999 ? "Infinity" : (m.debtToLiquidRatio || 0) + "%"
+                    m.debtToLiquidRatio === 999 ? "Infinity" : (m.debtToLiquidRatio || 0) + "%",
+                    m.gkAnnualGoal || 0,
+                    m.gkActualLiquidation || 0,
+                    m.gkWithdrawalMultiplier !== undefined ? m.gkWithdrawalMultiplier.toFixed(3) : '',
+                    m.gkAdjustment ? `"${m.gkAdjustment.replace(/"/g, '""')}"` : ''
                 ];
                 csvString += row.join(",") + "\n";
             });

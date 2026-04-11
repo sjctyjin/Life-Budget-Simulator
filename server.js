@@ -593,7 +593,8 @@ app.post('/api/quant/run-research', express.json(), (req, res) => {
     researchError = '';
     console.log(`\n🧠 啟動 Python 研究引擎: python ${args.join(' ')}`);
 
-    const child = execFile('python', args, { cwd: QUANT_DIR, timeout: 600000 }, (err, stdout, stderr) => {
+    const pythonPath = path.join(QUANT_DIR, 'venv310', 'Scripts', 'python.exe');
+    const child = execFile(pythonPath, args, { cwd: QUANT_DIR, timeout: 600000 }, (err, stdout, stderr) => {
         researchRunning = false;
         if (err) {
             console.error('❌ Python 研究失敗:', err.message);

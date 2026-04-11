@@ -387,10 +387,11 @@ const ScannerEngine = (() => {
             }
         };
 
-        if (benchmarkResult && benchmarkResult.chartData) {
-            const bCloses = benchmarkResult.chartData.closes;
+        if (benchmarkResult && benchmarkResult.days) {
+            const bCloses = benchmarkResult.days.map(d => d.close);
             const bRet5 = TC.calcReturn(bCloses, 5);
             const sRet5 = TC.calcReturn(closes, 5);
+            // If stock rose significantly but benchmark didn't, mark as "solo flight"
             if (sRet5 > 5 && bRet5 < 1.5) {
                 diagnosis.exhaustion.items.find(i => i.id === 'no_sector_support').active = true;
             }
