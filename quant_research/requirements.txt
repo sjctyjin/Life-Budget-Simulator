@@ -1,4 +1,4 @@
-FinMind>=2.4.0
+FinMind
 vectorbt>=0.26.0
 alphalens-reloaded>=0.4.0
 pandas>=2.0.0
