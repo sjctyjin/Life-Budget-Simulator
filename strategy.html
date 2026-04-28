@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>🧪 自組強勢 ETF — 雙軌策略選股儀表板 | Life Budget Simulator</title>
+    <meta name="description" content="結合基本面高成長篩選與產業資金熱力圖，雙軌並行自動配置預算打造專屬 ETF 組合。">
+    <link rel="icon" href="favicon.svg" type="image/svg+xml">
+    <link rel="stylesheet" href="css/strategy.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+</head>
+
+<body>
+    <div class="strat-container">
+
+        <!-- Header -->
+        <div class="strat-header">
+            <div class="strat-nav-links">
+                <a href="index.html">← 返回主模擬器</a>
+                <a href="ghost.html">👻 幽靈模式</a>
+                <a href="scanner.html">🧠 決策引擎</a>
+            </div>
+            <h1>🧪 自組強勢 ETF</h1>
+            <p>
+                雙軌並行：穩健成長股 × 資金熱點波段股<br>
+                用量化策略取代直覺，打造你的專屬 ETF 組合。
+            </p>
+            <div style="margin-top: 12px; font-size: 0.85rem; color: var(--text-dim);">
+                📅 資料更新時間：<span id="data-timestamp" style="color: var(--accent-cyan);">尚未更新</span>
+                &nbsp;|&nbsp;
+                📊 觀察池：<span id="data-stock-count" style="color: var(--accent-yellow);">0</span> 檔
+                &nbsp;|&nbsp;
+                <span style="color: var(--accent-yellow);">💡 點擊 <code>update_strategy.bat</code> 可一鍵更新所有數據</span>
+            </div>
+        </div>
+
+        <!-- Strategy Criteria (Collapsed) -->
+        <details class="strat-glass" style="cursor:pointer;">
+            <summary style="font-size:1.1rem; font-weight:700; color:var(--text-primary);">📋 選股策略篩選條件（點擊展開）</summary>
+            <div class="criteria-grid" style="margin-top:16px;">
+                <div class="criteria-card">
+                    <div class="criteria-icon">📊</div>
+                    <strong>基本面篩選</strong><br>
+                    • 必須獲利（EPS > 0）<br>
+                    • 營收年增率越高分越高<br>
+                    • 外資目標價涵蓋分析
+                </div>
+                <div class="criteria-card">
+                    <div class="criteria-icon">💰</div>
+                    <strong>估值濾網</strong><br>
+                    • 🟢 <span style="color:var(--accent-green)">便宜</span>：空間 > 20% 且 PE < 25x<br>
+                    • 🟡 <span style="color:var(--accent-yellow)">合理</span>：空間 5%~20%，PE 25~35x<br>
+                    • 🔴 <span style="color:var(--accent-red)">偏貴</span>：超越目標價 或 PE > 40x
+                </div>
+                <div class="criteria-card">
+                    <div class="criteria-icon">📈</div>
+                    <strong>技術面確認</strong><br>
+                    • 季線（60MA）斜率判斷多空<br>
+                    • MACD 柱狀體正負判斷<br>
+                    • KD 多方 / 超買超賣偵測
+                </div>
+                <div class="criteria-card">
+                    <div class="criteria-icon">🎯</div>
+                    <strong>排名計分公式</strong><br>
+                    • 潛在空間 × 60%<br>
+                    • 成長力道 × 40%<br>
+                    • PE 過高扣分（> 40x 扣分）
+                </div>
+            </div>
+        </details>
+
+        <!-- ===================== DUAL TRACK TABS ===================== -->
+        <div class="strat-tabs">
+            <button class="strat-tab active" data-mode="fundamental">🏆 穩健成長池 (GARP)</button>
+            <button class="strat-tab" data-mode="sectors">🔥 資金熱點池 (波段)</button>
+        </div>
+
+        <!-- ===================== TAB 1: FUNDAMENTAL TOP 10 ===================== -->
+        <div class="strat-panel active" id="panel-fundamental">
+            <div class="strat-glass">
+                <h2>🏆 穩健成長池 — GARP Top 10</h2>
+                <p style="color:var(--text-dim); margin-bottom:8px;">
+                    結合「外資目標價空間 × 營收成長率」自動排名。勾選您想買的股票，取消勾選偏貴的標的。<br>
+                    <span style="color:var(--accent-yellow);">💡 將滑鼠停在技術面欄位上可查看完整 MACD/KD 狀態。</span>
+                </p>
+                <div class="strat-table-wrap">
+                    <table class="strat-table">
+                        <thead>
+                            <tr>
+                                <th>選</th>
+                                <th>排名</th>
+                                <th style="text-align:left;">代號 / 名稱</th>
+                                <th>評價</th>
+                                <th>收盤價</th>
+                                <th>外資目標價</th>
+                                <th>潛在空間</th>
+                                <th>本益比</th>
+                                <th>EPS</th>
+                                <th>營收成長</th>
+                                <th>殖利率</th>
+                                <th>評分</th>
+                                <th>技術面</th>
+                            </tr>
+                        </thead>
+                        <tbody id="stock-tbody">
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <!-- ===================== TAB 2: SECTOR HEATMAP ===================== -->
+        <div class="strat-panel" id="panel-sectors">
+            <div class="strat-glass">
+                <h2>🔥 產業資金熱力圖</h2>
+                <p style="color:var(--text-dim); margin-bottom:12px;">
+                    系統自動計算各板塊過去 5/10/20 日的平均漲幅與量能變化。<br>
+                    <span style="color:var(--accent-yellow);">💡 點擊任一板塊卡片可展開該產業的「領軍股清單」，並勾選想買的標的。</span>
+                </p>
+                <div id="sector-heatmap"></div>
+            </div>
+
+            <!-- Sector Leaders (expanded on click) -->
+            <div class="strat-glass" id="sector-leaders" style="min-height:100px;">
+                <p style="color:var(--text-dim); padding:20px; text-align:center;">👆 點擊上方板塊卡片查看該產業的個股明細</p>
+            </div>
+        </div>
+
+        <!-- ===================== BUDGET ALLOCATION (SHARED) ===================== -->
+        <div class="strat-glass">
+            <h2>💰 投入預算配置</h2>
+            <p style="color:var(--text-dim); margin-bottom:12px;">
+                您可以從「穩健成長池」和「資金熱點池」中<strong>混合勾選</strong>股票。<br>
+                系統將以「等權重分配」幫您精算每檔股票的最佳購買股數（支援零股）。
+            </p>
+            <div class="budget-row">
+                <div class="form-group">
+                    <label class="form-label" for="budget-input">投資總預算 (NT$)</label>
+                    <input type="number" class="form-input" id="budget-input" value="300000" min="0" step="10000"
+                        placeholder="例如：300000">
+                </div>
+                <button class="btn-strat" id="btn-calculate">⚡ 計算最佳配置</button>
+            </div>
+            <p class="form-hint">
+                系統會將預算平均分配給您所勾選的股票。配置結果中會標記每檔股票來自哪個選股池（<span style="color:var(--accent-green);">穩健</span> 或 <span style="color:var(--accent-red);">波段</span>）。
+            </p>
+        </div>
+
+        <!-- ===================== ALLOCATION RESULTS ===================== -->
+        <div id="alloc-results" class="alloc-results">
+            <div class="strat-glass">
+                <h2>📦 你的自組 ETF 配置結果</h2>
+
+                <!-- Summary Stats Bar -->
+                <div class="alloc-summary-bar">
+                    <div class="alloc-stat">
+                        <div class="stat-label">投入預算</div>
+                        <div class="stat-value" id="stat-budget" style="color:var(--text-primary);">-</div>
+                    </div>
+                    <div class="alloc-stat">
+                        <div class="stat-label">實投金額</div>
+                        <div class="stat-value" id="stat-invested" style="color:var(--strat-secondary);">-</div>
+                    </div>
+                    <div class="alloc-stat">
+                        <div class="stat-label">閒置現金</div>
+                        <div class="stat-value" id="stat-idle" style="color:var(--accent-yellow);">-</div>
+                    </div>
+                    <div class="alloc-stat">
+                        <div class="stat-label">資金利用率</div>
+                        <div class="stat-value" id="stat-utilization" style="color:var(--accent-cyan);">-</div>
+                    </div>
+                    <div class="alloc-stat">
+                        <div class="stat-label">持股檔數</div>
+                        <div class="stat-value" id="stat-count" style="color:var(--accent-purple);">-</div>
+                    </div>
+                </div>
+
+                <!-- Grid: Table + Chart -->
+                <div class="alloc-grid">
+                    <div class="alloc-table-wrap">
+                        <table class="alloc-table">
+                            <thead>
+                                <tr>
+                                    <th>股票</th>
+                                    <th>股價</th>
+                                    <th>應買股數</th>
+                                    <th>投入金額</th>
+                                    <th>權重</th>
+                                    <th>預估上漲空間</th>
+                                </tr>
+                            </thead>
+                            <tbody id="alloc-tbody"></tbody>
+                        </table>
+                    </div>
+
+                    <div class="pie-container">
+                        <h3>🧩 資產配置佔比</h3>
+                        <div style="position:relative; width:100%; height:240px;">
+                            <canvas id="chart-etf"></canvas>
+                        </div>
+                        <div id="pie-legend" class="pie-legend"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+    </div>
+
+    <script src="js/strategy.js"></script>
+</body>
+
+</html>
