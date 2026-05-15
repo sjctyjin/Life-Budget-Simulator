@@ -147,20 +147,27 @@
                 <p style="color:var(--text-dim);margin-bottom:16px;line-height:1.6;">
                     一鍵掃描前一日有<strong style="color:var(--accent-green)">強勢突破</strong>，且今日出現
                     <strong style="color:var(--accent-green)">續攻</strong>或<strong style="color:var(--accent-yellow)">止跌回穩</strong>訊號的股票。<br>
-                    適合盤中短線操作，開盤後 9:00~9:30 使用效果最佳。
+                    支援台股與美股，適合盤中短線操作。
                 </p>
+
+                <!-- Market Toggle -->
+                <div class="dt-market-toggle" id="dt-market-toggle">
+                    <button class="dt-market-btn active" data-market="tw">🇹🇼 台股</button>
+                    <button class="dt-market-btn" data-market="us">🇺🇸 美股</button>
+                </div>
+
                 <div class="analysis-input-row" style="margin-bottom:16px;">
                     <div class="form-group" style="max-width:120px;">
                         <label class="form-label" for="dt-price-min">最低價</label>
-                        <input type="number" class="form-input" id="dt-price-min" value="100" min="10" step="10">
+                        <input type="number" class="form-input" id="dt-price-min" value="100" min="1" step="10">
                     </div>
                     <div class="form-group" style="max-width:120px;">
                         <label class="form-label" for="dt-price-max">最高價</label>
-                        <input type="number" class="form-input" id="dt-price-max" value="500" min="50" step="10">
+                        <input type="number" class="form-input" id="dt-price-max" value="500" min="10" step="10">
                     </div>
                     <div class="form-group" style="flex:1;">
                         <label class="form-label" for="dt-symbols">自訂股票池（選填）</label>
-                        <input type="text" class="form-input" id="dt-symbols" placeholder="留空使用預設 ~120 檔中低價股">
+                        <input type="text" class="form-input" id="dt-symbols" placeholder="留空使用預設股票池">
                     </div>
                     <button class="btn btn-scanner" id="btn-daytrade-scan" style="background:linear-gradient(135deg,#10b981,#06b6d4);box-shadow:0 4px 20px rgba(16,185,129,0.3);">⚡ 開始掃描</button>
                 </div>

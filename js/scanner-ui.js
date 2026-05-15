@@ -844,22 +844,50 @@
 
     // ==================== Day Trade Scanner ====================
     let daytradeResults = [];
+    let daytradeMarket = 'tw'; // 'tw' or 'us'
 
     $('btn-daytrade-scan').addEventListener('click', runDaytradeScan);
 
+    // Market toggle buttons
+    document.querySelectorAll('#dt-market-toggle .dt-market-btn').forEach(function(btn) {
+        btn.addEventListener('click', function() {
+            document.querySelectorAll('#dt-market-toggle .dt-market-btn').forEach(function(b) { b.classList.remove('active'); });
+            btn.classList.add('active');
+            daytradeMarket = btn.dataset.market;
+
+            // Update defaults based on market
+            if (daytradeMarket === 'us') {
+                $('dt-price-min').value = 10;
+                $('dt-price-max').value = 300;
+                $('dt-symbols').placeholder = '留空使用預設 ~120 檔美股 (AAPL, TSLA, NVDA...)';
+            } else {
+                $('dt-price-min').value = 100;
+                $('dt-price-max').value = 500;
+                $('dt-symbols').placeholder = '留空使用預設 ~120 檔中低價台股';
+            }
+        });
+    });
+
     async function runDaytradeScan() {
-        const priceMin = parseInt($('dt-price-min').value) || 100;
-        const priceMax = parseInt($('dt-price-max').value) || 500;
+        const priceMin = parseInt($('dt-price-min').value) || (daytradeMarket === 'us' ? 10 : 100);
+        const priceMax = parseInt($('dt-price-max').value) || (daytradeMarket === 'us' ? 300 : 500);
         const customSymbols = $('dt-symbols').value.trim();
         const btn = $('btn-daytrade-scan');
+        const marketLabel = daytradeMarket === 'us' ? '美股' : '台股';
 
         btn.disabled = true;
         btn.textContent = '⏳ 掃描中...';
         $('daytrade-loading').classList.add('active');
         $('daytrade-results').classList.remove('active');
 
+        // Update loading text based on market
+        var loadingText = $('daytrade-loading').querySelector('.loading-text');
+        var loadingSub = $('daytrade-loading').querySelector('.loading-sub');
+        if (loadingText) loadingText.textContent = '正在掃描' + marketLabel + '突破標的...';
+        if (loadingSub) loadingSub.textContent = '分析 ~' + (daytradeMarket === 'us' ? '120' : '120') + ' 檔' + marketLabel + '的前日走勢 + 今日訊號';
+
         try {
-            let url = '/api/scanner/daytrade?priceMin=' + priceMin + '&priceMax=' + priceMax;
+            let url = '/api/scanner/daytrade?market=' + daytradeMarket + '&priceMin=' + priceMin + '&priceMax=' + priceMax;
             if (customSymbols) {
                 url += '&symbols=' + encodeURIComponent(customSymbols);
             }
@@ -883,6 +911,7 @@
                     symbol: stock.originalSymbol || stock.symbol,
                     shortName: stock.shortName,
                     currentPrice: stock.currentPrice,
+                    currency: data.currency || 'TWD',
                     ...dtResult,
                     days: stock.days,
                 });

@@ -707,6 +707,45 @@
     line-height: 1.4;
 }
 
+/* ---- Day Trade Market Toggle ---- */
+.dt-market-toggle {
+    display: flex;
+    gap: 0;
+    margin-bottom: 16px;
+    border-radius: 10px;
+    overflow: hidden;
+    border: 1px solid var(--border-subtle);
+    width: fit-content;
+}
+
+.dt-market-btn {
+    padding: 10px 28px;
+    border: none;
+    background: transparent;
+    color: var(--text-dim);
+    font-family: var(--font-tc);
+    font-size: 0.95rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: var(--transition);
+    position: relative;
+}
+
+.dt-market-btn:first-child {
+    border-right: 1px solid var(--border-subtle);
+}
+
+.dt-market-btn:hover {
+    color: var(--text-secondary);
+    background: rgba(16, 185, 129, 0.05);
+}
+
+.dt-market-btn.active {
+    background: linear-gradient(135deg, rgba(16, 185, 129, 0.2), rgba(6, 182, 212, 0.15));
+    color: var(--accent-green);
+    font-weight: 700;
+}
+
 /* ---- Day Trade Signal Badges ---- */
 .dt-signal-badge {
     display: inline-flex;

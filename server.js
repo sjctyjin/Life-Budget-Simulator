@@ -550,7 +550,7 @@ app.get('/api/scanner/top', async (req, res) => {
 // ==================== 當沖掃描 API ====================
 
 // Day-trade stock pool — mid-cap Taiwan stocks focused on NT$100~500
-const DAYTRADE_SCAN_LIST = [
+const DAYTRADE_TW_LIST = [
     // 電子 — 半導體 / IC 設計 / 封測
     '2303','2308','2324','2327','2344','2353','2356','2360',
     '2376','2379','2382','2383','2385','2408','2409','2449',
@@ -576,20 +576,55 @@ const DAYTRADE_SCAN_LIST = [
     '9904','9910','9933','9945',
 ];
 
-// Remove duplicates from list
-const DAYTRADE_UNIQUE_LIST = [...new Set(DAYTRADE_SCAN_LIST)];
+// Day-trade stock pool — popular US stocks for day trading
+const DAYTRADE_US_LIST = [
+    // Mega-cap Tech (high liquidity, great for momentum)
+    'AAPL','MSFT','GOOG','AMZN','META','TSLA','NVDA','AMD',
+    // AI / Semiconductor
+    'AVGO','MRVL','MU','INTC','QCOM','ARM','SMCI','DELL',
+    'ANET','TSM','LRCX','KLAC','ASML','ON','MCHP',
+    // Software / Cloud / SaaS
+    'CRM','ORCL','PLTR','SNOW','NET','DDOG','CRWD','ZS',
+    'PANW','SHOP','SQ','COIN','HOOD','SOFI','AFRM',
+    // EV / Energy / Clean
+    'RIVN','LCID','NIO','XPEV','LI','ENPH','FSLR','PLUG',
+    // Biotech / Pharma (volatile = day trade favorites)
+    'MRNA','BNTX','REGN','VRTX','ABBV','BMY','GILD','BIIB',
+    // Meme / High-volatility favorites
+    'GME','AMC','MARA','RIOT','ROKU','SNAP','PINS','RBLX',
+    'DKNG','UPST','CLOV','LAZR','IONQ',
+    // Financials / Diversified
+    'JPM','BAC','GS','MS','C','WFC','SCHW','V','MA','PYPL',
+    // Consumer / Retail
+    'NFLX','DIS','ABNB','UBER','LYFT','DASH','WMT','TGT',
+    'COST','NKE','SBUX','MCD','CMG',
+    // Industrial / Others
+    'BA','CAT','DE','GE','RTX','LMT','F','GM','AAL','DAL','UAL',
+    // ETF (for market reference)
+    'SPY','QQQ','IWM','ARKK','SOXL','TQQQ',
+];
 
-// Day-trade scanner endpoint
+// Remove duplicates
+const DAYTRADE_TW_UNIQUE = [...new Set(DAYTRADE_TW_LIST)];
+const DAYTRADE_US_UNIQUE = [...new Set(DAYTRADE_US_LIST)];
+
+// Day-trade scanner endpoint (supports tw and us markets)
 app.get('/api/scanner/daytrade', async (req, res) => {
+    const market = (req.query.market || 'tw').toLowerCase();
     const symbolsParam = req.query.symbols;
-    const priceMin = parseFloat(req.query.priceMin) || 100;
-    const priceMax = parseFloat(req.query.priceMax) || 500;
+    const defaultMin = market === 'us' ? 5 : 100;
+    const defaultMax = market === 'us' ? 500 : 500;
+    const priceMin = parseFloat(req.query.priceMin) || defaultMin;
+    const priceMax = parseFloat(req.query.priceMax) || defaultMax;
 
+    const defaultList = market === 'us' ? DAYTRADE_US_UNIQUE : DAYTRADE_TW_UNIQUE;
     const symbolList = symbolsParam
         ? symbolsParam.split(',').map(s => s.trim().toUpperCase()).filter(Boolean)
-        : DAYTRADE_UNIQUE_LIST;
+        : defaultList;
 
-    console.log(`\n⚡ 當沖掃描啟動: ${symbolList.length} 檔, 價格 ${priceMin}~${priceMax}`);
+    const marketLabel = market === 'us' ? '美股' : '台股';
+    const currency = market === 'us' ? 'USD' : 'TWD';
+    console.log(`\n⚡ 當沖掃描啟動 [${marketLabel}]: ${symbolList.length} 檔, 價格 ${priceMin}~${priceMax}`);
 
     try {
         const batchSize = 5;
@@ -602,11 +637,17 @@ app.get('/api/scanner/daytrade', async (req, res) => {
                     try {
                         let symbol = sym;
                         const isTW = /^\d{4,6}[A-Z]*$/.test(symbol);
-                        if (isTW) symbol = symbol + '.TW';
+
+                        // Only auto-append .TW for Taiwan market codes
+                        if (market === 'tw' && isTW) {
+                            symbol = symbol + '.TW';
+                        }
 
                         // 3 months of daily data is sufficient for day trade analysis
                         let data = await fetchAnalysisData(symbol, 3);
-                        if (!data && isTW) {
+
+                        // Fallback for Taiwan OTC stocks
+                        if (!data && market === 'tw' && isTW) {
                             const altSymbol = symbol.replace('.TW', '.TWO');
                             data = await fetchAnalysisData(altSymbol, 3);
                         }
@@ -628,8 +669,14 @@ app.get('/api/scanner/daytrade', async (req, res) => {
             }
         }
 
-        console.log(`⚡ 掃描完成: ${results.length} 檔在 ${priceMin}~${priceMax} 區間`);
-        res.json({ stocks: results, scannedAt: new Date().toISOString(), priceRange: { min: priceMin, max: priceMax } });
+        console.log(`⚡ 掃描完成 [${marketLabel}]: ${results.length} 檔在 ${priceMin}~${priceMax} 區間`);
+        res.json({
+            stocks: results,
+            scannedAt: new Date().toISOString(),
+            market,
+            currency,
+            priceRange: { min: priceMin, max: priceMax }
+        });
     } catch (err) {
         console.error('Day-trade scanner error:', err.message);
         res.status(500).json({ error: '當沖掃描失敗', details: err.message });
