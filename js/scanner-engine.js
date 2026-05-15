@@ -632,13 +632,203 @@ const ScannerEngine = (() => {
         };
     }
 
+    // ==================== Day Trade Scorer ====================
+    /**
+     * Score a stock for day-trade breakout strategy.
+     * Returns breakout score for previous day + today's signal type.
+     * @param {Array} days - OHLCV daily data (at least 25 days)
+     * @returns {Object|null} scoring result
+     */
+    function scoreDayTrade(days) {
+        if (!days || days.length < 25) return null;
+
+        const len = days.length;
+        const today = days[len - 1];
+        const yesterday = days[len - 2];
+        const dayBefore = days[len - 3];
+
+        const closes = days.map(d => d.close);
+        const highs = days.map(d => d.high);
+        const lows = days.map(d => d.low);
+        const volumes = days.map(d => d.volume);
+
+        // ---- STEP 1: Yesterday's Breakout Score (0-100) ----
+        let breakoutScore = 0;
+        const breakoutDetails = [];
+
+        // 1a. Close above 20-day high (25 pts)
+        const lookback = Math.min(20, len - 3);
+        let recentHigh = -Infinity;
+        for (let i = len - 3 - lookback; i <= len - 3; i++) {
+            if (i >= 0 && highs[i] > recentHigh) recentHigh = highs[i];
+        }
+        if (yesterday.close > recentHigh) {
+            breakoutScore += 25;
+            breakoutDetails.push('突破20日高點');
+        } else if (yesterday.high > recentHigh) {
+            breakoutScore += 12;
+            breakoutDetails.push('盤中觸及20日高');
+        }
+
+        // 1b. Volume surge (20 pts)
+        const volPeriod = Math.min(20, len - 2);
+        let volSum = 0;
+        for (let i = len - 2 - volPeriod; i < len - 2; i++) {
+            if (i >= 0) volSum += volumes[i];
+        }
+        const avgVol = volSum / volPeriod;
+        const yesterdayVolRatio = avgVol > 0 ? yesterday.volume / avgVol : 0;
+        if (yesterdayVolRatio > 2.5) {
+            breakoutScore += 20;
+            breakoutDetails.push('爆量 ' + yesterdayVolRatio.toFixed(1) + 'x');
+        } else if (yesterdayVolRatio > 1.5) {
+            breakoutScore += 15;
+            breakoutDetails.push('放量 ' + yesterdayVolRatio.toFixed(1) + 'x');
+        } else if (yesterdayVolRatio > 1.2) {
+            breakoutScore += 8;
+            breakoutDetails.push('量增 ' + yesterdayVolRatio.toFixed(1) + 'x');
+        }
+
+        // 1c. Candle body size — big green candle (20 pts)
+        const bodyPct = yesterday.open > 0 ? (yesterday.close - yesterday.open) / yesterday.open * 100 : 0;
+        if (bodyPct > 5) {
+            breakoutScore += 20;
+            breakoutDetails.push('長紅 +' + bodyPct.toFixed(1) + '%');
+        } else if (bodyPct > 3) {
+            breakoutScore += 16;
+            breakoutDetails.push('紅K +' + bodyPct.toFixed(1) + '%');
+        } else if (bodyPct > 2) {
+            breakoutScore += 12;
+            breakoutDetails.push('漲 +' + bodyPct.toFixed(1) + '%');
+        } else if (bodyPct > 1) {
+            breakoutScore += 6;
+            breakoutDetails.push('小漲 +' + bodyPct.toFixed(1) + '%');
+        }
+
+        // 1d. Close near high — no upper shadow (15 pts)
+        const upperShadowPct = yesterday.high > 0 ? (yesterday.high - yesterday.close) / yesterday.high * 100 : 0;
+        if (upperShadowPct < 0.3) {
+            breakoutScore += 15;
+            breakoutDetails.push('收最高');
+        } else if (upperShadowPct < 1.0) {
+            breakoutScore += 10;
+            breakoutDetails.push('收近高');
+        } else if (upperShadowPct < 2.0) {
+            breakoutScore += 5;
+        }
+
+        // 1e. RSI in sweet zone (20 pts)
+        const rsi = TC.calcRSI(closes, 14);
+        const yesterdayRSI = rsi[len - 2];
+        if (yesterdayRSI !== null) {
+            if (yesterdayRSI >= 55 && yesterdayRSI <= 75) {
+                breakoutScore += 20;
+                breakoutDetails.push('RSI ' + yesterdayRSI.toFixed(0) + ' 強勢');
+            } else if (yesterdayRSI > 75 && yesterdayRSI <= 85) {
+                breakoutScore += 10;
+                breakoutDetails.push('RSI ' + yesterdayRSI.toFixed(0) + ' 偏熱');
+            } else if (yesterdayRSI >= 45 && yesterdayRSI < 55) {
+                breakoutScore += 10;
+                breakoutDetails.push('RSI ' + yesterdayRSI.toFixed(0) + ' 中性');
+            } else if (yesterdayRSI > 85) {
+                breakoutScore += 3;
+                breakoutDetails.push('RSI ' + yesterdayRSI.toFixed(0) + ' ⚠️過熱');
+            }
+        }
+
+        breakoutScore = Math.min(breakoutScore, 100);
+
+        // ---- STEP 2: Today's Signal ----
+        let todayType = 'none'; // 'attack', 'stabilize', 'none'
+        let todayScore = 0;
+        const todayDetails = [];
+
+        const todayChangePct = yesterday.close > 0 ? (today.close - yesterday.close) / yesterday.close * 100 : 0;
+        const todayGapPct = yesterday.close > 0 ? (today.open - yesterday.close) / yesterday.close * 100 : 0;
+        const todayVolRatio = yesterday.volume > 0 ? today.volume / yesterday.volume : 0;
+        const todayRSI = rsi[len - 1];
+
+        // Type A: Continuation Attack (跳空續攻)
+        const isAttack = (
+            today.open > yesterday.close &&
+            today.close > today.open &&
+            todayChangePct > 0.5
+        );
+
+        // Type B: Dip Stabilization (止跌回穩)
+        const ma5 = TC.calcMA(closes, 5);
+        const latestMA5 = ma5[len - 1];
+        const lowerShadow = today.close > today.low ? today.close - today.low : 0;
+        const upperBody = today.high > today.close ? today.high - today.close : 0;
+        const hasLongLowerShadow = lowerShadow > upperBody * 1.5 && lowerShadow > (today.high - today.low) * 0.4;
+
+        const isStabilize = (
+            todayChangePct >= -3 && todayChangePct < 0.5 &&
+            today.close > (latestMA5 || 0) * 0.97 &&
+            (todayRSI === null || todayRSI > 35)
+        );
+
+        if (isAttack) {
+            todayType = 'attack';
+            todayScore = 0;
+            if (todayGapPct > 2) { todayScore += 30; todayDetails.push('跳空 +' + todayGapPct.toFixed(1) + '%'); }
+            else if (todayGapPct > 0) { todayScore += 15; todayDetails.push('開高 +' + todayGapPct.toFixed(1) + '%'); }
+            if (todayChangePct > 3) { todayScore += 30; todayDetails.push('大漲 +' + todayChangePct.toFixed(1) + '%'); }
+            else if (todayChangePct > 1) { todayScore += 20; todayDetails.push('上漲 +' + todayChangePct.toFixed(1) + '%'); }
+            else { todayScore += 10; todayDetails.push('微漲 +' + todayChangePct.toFixed(1) + '%'); }
+            if (todayVolRatio > 0.5) { todayScore += 20; todayDetails.push('量能跟進'); }
+            if (today.close > today.open) { todayScore += 20; todayDetails.push('紅K上攻'); }
+            todayScore = Math.min(todayScore, 100);
+        } else if (isStabilize) {
+            todayType = 'stabilize';
+            todayScore = 0;
+            if (hasLongLowerShadow) { todayScore += 30; todayDetails.push('下影線長 有人接'); }
+            if (todayChangePct > -1) { todayScore += 25; todayDetails.push('跌幅小 ' + todayChangePct.toFixed(1) + '%'); }
+            else { todayScore += 10; todayDetails.push('回測 ' + todayChangePct.toFixed(1) + '%'); }
+            if (today.close > (latestMA5 || 0)) { todayScore += 25; todayDetails.push('守住 MA5'); }
+            if (todayRSI !== null && todayRSI > 45) { todayScore += 20; todayDetails.push('RSI ' + todayRSI.toFixed(0) + ' 穩'); }
+            todayScore = Math.min(todayScore, 100);
+        }
+
+        // ---- STEP 3: Composite Score ----
+        let compositeScore = breakoutScore;
+        if (todayType === 'attack') {
+            compositeScore = Math.round(breakoutScore * 0.5 + todayScore * 0.5);
+        } else if (todayType === 'stabilize') {
+            compositeScore = Math.round(breakoutScore * 0.6 + todayScore * 0.4);
+        }
+
+        const yesterdayChangePct = dayBefore.close > 0
+            ? (yesterday.close - dayBefore.close) / dayBefore.close * 100 : 0;
+
+        return {
+            breakoutScore,
+            breakoutDetails,
+            todayType,
+            todayScore,
+            todayDetails,
+            compositeScore,
+            yesterdayChangePct,
+            yesterdayVolRatio,
+            todayChangePct,
+            todayGapPct,
+            yesterdayRSI: yesterdayRSI !== null ? Math.round(yesterdayRSI * 10) / 10 : null,
+            todayRSI: todayRSI !== null ? Math.round(todayRSI * 10) / 10 : null,
+            bodyPct: Math.round(bodyPct * 100) / 100,
+            yesterdayClose: yesterday.close,
+            todayClose: today.close,
+            todayOpen: today.open,
+        };
+    }
+
     // ==================== Public API ====================
     return {
         TC,
         scoreStock,
         classifyStock,
         generateAdvice,
-        diagnoseYouTubeStrategy
+        diagnoseYouTubeStrategy,
+        scoreDayTrade
     };
 })();
 

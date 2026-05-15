@@ -31,6 +31,7 @@
         <!-- Mode Tabs -->
         <div class="scanner-tabs">
             <button class="scanner-tab active" data-mode="analysis">📊 個股分析</button>
+            <button class="scanner-tab" data-mode="daytrade">⚡ 當沖掃描</button>
             <button class="scanner-tab" data-mode="scanner">🔍 市場掃描器</button>
             <button class="scanner-tab" data-mode="settings">⚙️ 策略設定</button>
             <button class="scanner-tab" data-mode="research">🧪 專業研究</button>
@@ -135,6 +136,101 @@
                 <div style="text-align:center;margin-top:20px;">
                     <button class="btn btn-secondary" onclick="window.scrollTo({top:0,behavior:'smooth'})">⬆
                         回到頂部</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- ===================== TAB: DAY TRADE SCANNER ===================== -->
+        <div class="scanner-panel" id="panel-daytrade">
+            <div class="scanner-glass">
+                <h2>⚡ 當沖掃描器 — 突破+續攻選股</h2>
+                <p style="color:var(--text-dim);margin-bottom:16px;line-height:1.6;">
+                    一鍵掃描前一日有<strong style="color:var(--accent-green)">強勢突破</strong>，且今日出現
+                    <strong style="color:var(--accent-green)">續攻</strong>或<strong style="color:var(--accent-yellow)">止跌回穩</strong>訊號的股票。<br>
+                    適合盤中短線操作，開盤後 9:00~9:30 使用效果最佳。
+                </p>
+                <div class="analysis-input-row" style="margin-bottom:16px;">
+                    <div class="form-group" style="max-width:120px;">
+                        <label class="form-label" for="dt-price-min">最低價</label>
+                        <input type="number" class="form-input" id="dt-price-min" value="100" min="10" step="10">
+                    </div>
+                    <div class="form-group" style="max-width:120px;">
+                        <label class="form-label" for="dt-price-max">最高價</label>
+                        <input type="number" class="form-input" id="dt-price-max" value="500" min="50" step="10">
+                    </div>
+                    <div class="form-group" style="flex:1;">
+                        <label class="form-label" for="dt-symbols">自訂股票池（選填）</label>
+                        <input type="text" class="form-input" id="dt-symbols" placeholder="留空使用預設 ~120 檔中低價股">
+                    </div>
+                    <button class="btn btn-scanner" id="btn-daytrade-scan" style="background:linear-gradient(135deg,#10b981,#06b6d4);box-shadow:0 4px 20px rgba(16,185,129,0.3);">⚡ 開始掃描</button>
+                </div>
+
+                <!-- Strategy summary -->
+                <div class="dt-strategy-box">
+                    <div class="dt-strategy-item">
+                        <span class="dt-strategy-icon">📊</span>
+                        <div>
+                            <div class="dt-strategy-label">前日突破</div>
+                            <div class="dt-strategy-desc">突破20日高 + 放量 + 長紅K + RSI強勢</div>
+                        </div>
+                    </div>
+                    <div class="dt-strategy-item">
+                        <span class="dt-strategy-icon">🟢</span>
+                        <div>
+                            <div class="dt-strategy-label">續攻訊號</div>
+                            <div class="dt-strategy-desc">跳空開高 + 紅K上攻 + 量能跟進</div>
+                        </div>
+                    </div>
+                    <div class="dt-strategy-item">
+                        <span class="dt-strategy-icon">🟡</span>
+                        <div>
+                            <div class="dt-strategy-label">止跌訊號</div>
+                            <div class="dt-strategy-desc">跌幅 <3% + 守MA5 + 下影線長</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Loading -->
+            <div class="scanner-loading" id="daytrade-loading">
+                <div class="loading-spinner"></div>
+                <div class="loading-text">正在掃描台股突破標的...</div>
+                <div class="loading-sub">分析 ~120 檔股票的前日走勢 + 今日訊號</div>
+            </div>
+
+            <!-- Results -->
+            <div class="scanner-results" id="daytrade-results">
+                <div class="scanner-glass">
+                    <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px;margin-bottom:16px;">
+                        <h3 style="margin-bottom:0;">🏆 當沖候選排行 <span id="dt-count" style="font-size:0.85rem;color:var(--text-dim);font-weight:400;"></span></h3>
+                    </div>
+
+                    <!-- Signal Filter Tabs -->
+                    <div class="category-filters" id="dt-filters">
+                        <button class="category-tag active" data-dt-filter="all">📋 全部</button>
+                        <button class="category-tag" data-dt-filter="attack">🟢 續攻</button>
+                        <button class="category-tag" data-dt-filter="stabilize">🟡 止跌</button>
+                        <button class="category-tag" data-dt-filter="none">⚪ 無訊號</button>
+                    </div>
+
+                    <div class="scanner-table-wrap">
+                        <table class="scanner-rank-table" id="dt-table"></table>
+                    </div>
+                </div>
+
+                <!-- Detail card (shown on row click) -->
+                <div class="scanner-glass" id="dt-detail-card" style="display:none;">
+                    <h3 id="dt-detail-title">📋 詳細分析</h3>
+                    <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">
+                        <div>
+                            <h4 style="color:var(--accent-green);font-size:0.95rem;margin-bottom:8px;">📊 前日突破細項</h4>
+                            <div id="dt-detail-breakout" class="dt-detail-list"></div>
+                        </div>
+                        <div>
+                            <h4 style="color:var(--accent-cyan);font-size:0.95rem;margin-bottom:8px;">📡 今日訊號細項</h4>
+                            <div id="dt-detail-today" class="dt-detail-list"></div>
+                        </div>
+                    </div>
                 </div>
             </div>
         </div>

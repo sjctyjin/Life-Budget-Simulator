@@ -842,4 +842,213 @@
         alert('✅ 最佳權重已套用到策略設定！');
     }
 
+    // ==================== Day Trade Scanner ====================
+    let daytradeResults = [];
+
+    $('btn-daytrade-scan').addEventListener('click', runDaytradeScan);
+
+    async function runDaytradeScan() {
+        const priceMin = parseInt($('dt-price-min').value) || 100;
+        const priceMax = parseInt($('dt-price-max').value) || 500;
+        const customSymbols = $('dt-symbols').value.trim();
+        const btn = $('btn-daytrade-scan');
+
+        btn.disabled = true;
+        btn.textContent = '⏳ 掃描中...';
+        $('daytrade-loading').classList.add('active');
+        $('daytrade-results').classList.remove('active');
+
+        try {
+            let url = '/api/scanner/daytrade?priceMin=' + priceMin + '&priceMax=' + priceMax;
+            if (customSymbols) {
+                url += '&symbols=' + encodeURIComponent(customSymbols);
+            }
+
+            const res = await fetch(url);
+            const data = await res.json();
+
+            if (data.error) { alert('❌ ' + data.error); return; }
+
+            // Score each stock with day trade scorer
+            daytradeResults = [];
+            for (const stock of (data.stocks || [])) {
+                if (!stock.days || stock.days.length < 25) continue;
+                const dtResult = ScannerEngine.scoreDayTrade(stock.days);
+                if (!dtResult) continue;
+
+                // Only include stocks with some breakout signal (score > 20)
+                if (dtResult.breakoutScore < 20) continue;
+
+                daytradeResults.push({
+                    symbol: stock.originalSymbol || stock.symbol,
+                    shortName: stock.shortName,
+                    currentPrice: stock.currentPrice,
+                    ...dtResult,
+                    days: stock.days,
+                });
+            }
+
+            // Sort by composite score descending
+            daytradeResults.sort((a, b) => b.compositeScore - a.compositeScore);
+
+            displayDaytradeResults(daytradeResults);
+
+        } catch (err) {
+            alert('掃描失敗，請確認伺服器正在運行');
+            console.error(err);
+        } finally {
+            btn.disabled = false;
+            btn.textContent = '⚡ 開始掃描';
+            $('daytrade-loading').classList.remove('active');
+        }
+    }
+
+    function getSignalBadge(type) {
+        if (type === 'attack') return '<span class="dt-signal-badge dt-signal-attack">🟢 續攻</span>';
+        if (type === 'stabilize') return '<span class="dt-signal-badge dt-signal-stabilize">🟡 止跌</span>';
+        return '<span class="dt-signal-badge dt-signal-none">⚪ 無訊號</span>';
+    }
+
+    function displayDaytradeResults(results, filter) {
+        $('daytrade-results').classList.add('active');
+        $('dt-detail-card').style.display = 'none';
+
+        var filtered = results;
+        if (filter && filter !== 'all') {
+            filtered = results.filter(function(r) { return r.todayType === filter; });
+        }
+        $('dt-count').textContent = '找到 ' + filtered.length + ' 檔候選';
+
+        var html = '<thead><tr>' +
+            '<th data-dt-sort="rank"># <span class="sort-arrow">▼</span></th>' +
+            '<th data-dt-sort="symbol">代號 <span class="sort-arrow">▼</span></th>' +
+            '<th data-dt-sort="currentPrice">股價 <span class="sort-arrow">▼</span></th>' +
+            '<th data-dt-sort="yesterdayChangePct">昨漲% <span class="sort-arrow">▼</span></th>' +
+            '<th data-dt-sort="yesterdayVolRatio">昨量比 <span class="sort-arrow">▼</span></th>' +
+            '<th data-dt-sort="todayChangePct">今日% <span class="sort-arrow">▼</span></th>' +
+            '<th data-dt-sort="breakoutScore">突破分 <span class="sort-arrow">▼</span></th>' +
+            '<th data-dt-sort="compositeScore" class="sorted">綜合分 <span class="sort-arrow">▼</span></th>' +
+            '<th data-dt-sort="todayType">訊號 <span class="sort-arrow">▼</span></th>' +
+            '</tr></thead><tbody>';
+
+        filtered.forEach(function(s, i) {
+            var yChgCls = s.yesterdayChangePct >= 0 ? 'text-green' : 'text-red';
+            var tChgCls = s.todayChangePct >= 0 ? 'text-green' : 'text-red';
+            var breakoutColor = getScoreColor(s.breakoutScore);
+            var compositeColor = getScoreColor(s.compositeScore);
+            var volColor = s.yesterdayVolRatio >= 1.5 ? 'text-cyan' : (s.yesterdayVolRatio >= 1.2 ? 'text-yellow' : '');
+
+            html += '<tr class="dt-result-row" data-idx="' + i + '">' +
+                '<td>' + (i + 1) + '</td>' +
+                '<td class="scan-symbol-click dt-symbol-cell" data-symbol="' + s.symbol + '">' + s.symbol + '<div class="dt-shortname">' + (s.shortName || '') + '</div></td>' +
+                '<td>' + fmtPrice(s.currentPrice) + '</td>' +
+                '<td class="' + yChgCls + '">' + (s.yesterdayChangePct >= 0 ? '+' : '') + fmtNum(s.yesterdayChangePct, 2) + '%</td>' +
+                '<td class="' + volColor + '">' + fmtNum(s.yesterdayVolRatio, 1) + 'x</td>' +
+                '<td class="' + tChgCls + '">' + (s.todayChangePct >= 0 ? '+' : '') + fmtNum(s.todayChangePct, 2) + '%</td>' +
+                '<td><div class="mini-score-bar"><div class="bar-bg"><div class="bar-fill" style="width:' + s.breakoutScore + '%;background:' + breakoutColor + ';"></div></div><span class="bar-value" style="color:' + breakoutColor + '">' + s.breakoutScore + '</span></div></td>' +
+                '<td class="score-cell" style="color:' + compositeColor + '">' + s.compositeScore + '</td>' +
+                '<td>' + getSignalBadge(s.todayType) + '</td>' +
+                '</tr>';
+        });
+
+        html += '</tbody>';
+        $('dt-table').innerHTML = html;
+
+        // Click symbol to jump to analysis
+        document.querySelectorAll('#dt-table .scan-symbol-click').forEach(function(td) {
+            td.addEventListener('click', function(e) {
+                e.stopPropagation();
+                $('analysis-symbol').value = td.dataset.symbol;
+                document.querySelectorAll('.scanner-tab').forEach(function(t) { t.classList.remove('active'); });
+                document.querySelector('.scanner-tab[data-mode="analysis"]').classList.add('active');
+                document.querySelectorAll('.scanner-panel').forEach(function(p) { p.classList.remove('active'); });
+                $('panel-analysis').classList.add('active');
+                runAnalysis();
+                window.scrollTo({ top: 0, behavior: 'smooth' });
+            });
+        });
+
+        // Click row to show detail card
+        document.querySelectorAll('#dt-table .dt-result-row').forEach(function(row) {
+            row.addEventListener('click', function() {
+                var idx = parseInt(row.dataset.idx);
+                var item = filtered[idx];
+                if (!item) return;
+
+                // Highlight selected row
+                document.querySelectorAll('#dt-table .dt-result-row').forEach(function(r) { r.classList.remove('dt-row-selected'); });
+                row.classList.add('dt-row-selected');
+
+                // Show detail card
+                $('dt-detail-card').style.display = 'block';
+                $('dt-detail-title').innerHTML = '📋 ' + item.symbol + ' ' + (item.shortName || '') + ' — 詳細分析';
+
+                // Breakout details
+                var breakoutHtml = item.breakoutDetails.map(function(d) {
+                    return '<div class="dt-detail-tag dt-detail-green">' + d + '</div>';
+                }).join('');
+                breakoutHtml += '<div class="dt-detail-score">突破分數: <strong style="color:' + getScoreColor(item.breakoutScore) + '">' + item.breakoutScore + '</strong> / 100</div>';
+                if (item.yesterdayRSI) breakoutHtml += '<div class="dt-detail-meta">昨日 RSI: ' + item.yesterdayRSI + '</div>';
+                $('dt-detail-breakout').innerHTML = breakoutHtml;
+
+                // Today details
+                var todayHtml = '';
+                if (item.todayType === 'attack') {
+                    todayHtml += '<div class="dt-detail-tag dt-detail-green" style="font-weight:700;">🟢 續攻模式</div>';
+                } else if (item.todayType === 'stabilize') {
+                    todayHtml += '<div class="dt-detail-tag dt-detail-yellow" style="font-weight:700;">🟡 止跌回穩</div>';
+                } else {
+                    todayHtml += '<div class="dt-detail-tag dt-detail-gray">⚪ 未觸發訊號</div>';
+                }
+                todayHtml += item.todayDetails.map(function(d) {
+                    return '<div class="dt-detail-tag ' + (item.todayType === 'attack' ? 'dt-detail-green' : 'dt-detail-yellow') + '">' + d + '</div>';
+                }).join('');
+                todayHtml += '<div class="dt-detail-score">今日分數: <strong style="color:' + getScoreColor(item.todayScore) + '">' + item.todayScore + '</strong> / 100</div>';
+                todayHtml += '<div class="dt-detail-meta">開盤: ' + fmtPrice(item.todayOpen) + ' → 現價: ' + fmtPrice(item.todayClose) + '</div>';
+                if (item.todayRSI) todayHtml += '<div class="dt-detail-meta">今日 RSI: ' + item.todayRSI + '</div>';
+                $('dt-detail-today').innerHTML = todayHtml;
+
+                $('dt-detail-card').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+            });
+        });
+
+        // Sort headers
+        document.querySelectorAll('#dt-table th[data-dt-sort]').forEach(function(th) {
+            th.addEventListener('click', function() {
+                var sortKey = th.dataset.dtSort;
+                document.querySelectorAll('#dt-table th').forEach(function(h) { h.classList.remove('sorted'); });
+                th.classList.add('sorted');
+
+                var sorted = daytradeResults.slice();
+                if (sortKey === 'rank' || sortKey === 'compositeScore') sorted.sort(function(a, b) { return b.compositeScore - a.compositeScore; });
+                else if (sortKey === 'symbol') sorted.sort(function(a, b) { return a.symbol.localeCompare(b.symbol); });
+                else if (sortKey === 'currentPrice') sorted.sort(function(a, b) { return b.currentPrice - a.currentPrice; });
+                else if (sortKey === 'yesterdayChangePct') sorted.sort(function(a, b) { return b.yesterdayChangePct - a.yesterdayChangePct; });
+                else if (sortKey === 'yesterdayVolRatio') sorted.sort(function(a, b) { return b.yesterdayVolRatio - a.yesterdayVolRatio; });
+                else if (sortKey === 'todayChangePct') sorted.sort(function(a, b) { return b.todayChangePct - a.todayChangePct; });
+                else if (sortKey === 'breakoutScore') sorted.sort(function(a, b) { return b.breakoutScore - a.breakoutScore; });
+                else if (sortKey === 'todayType') sorted.sort(function(a, b) {
+                    var order = { attack: 0, stabilize: 1, none: 2 };
+                    return (order[a.todayType] || 2) - (order[b.todayType] || 2);
+                });
+
+                displayDaytradeResults(sorted, getCurrentDtFilter());
+            });
+        });
+    }
+
+    function getCurrentDtFilter() {
+        var activeTag = document.querySelector('#dt-filters .category-tag.active');
+        return activeTag ? activeTag.dataset.dtFilter : 'all';
+    }
+
+    // Day trade filter tags
+    document.querySelectorAll('#dt-filters .category-tag').forEach(function(tag) {
+        tag.addEventListener('click', function() {
+            document.querySelectorAll('#dt-filters .category-tag').forEach(function(t) { t.classList.remove('active'); });
+            tag.classList.add('active');
+            displayDaytradeResults(daytradeResults, tag.dataset.dtFilter);
+        });
+    });
+
 })();

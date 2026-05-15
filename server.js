@@ -547,6 +547,95 @@ app.get('/api/scanner/top', async (req, res) => {
     }
 });
 
+// ==================== 當沖掃描 API ====================
+
+// Day-trade stock pool — mid-cap Taiwan stocks focused on NT$100~500
+const DAYTRADE_SCAN_LIST = [
+    // 電子 — 半導體 / IC 設計 / 封測
+    '2303','2308','2324','2327','2344','2353','2356','2360',
+    '2376','2379','2382','2383','2385','2408','2409','2449',
+    '3034','3037','3044','3231','3443','3481','3530','3532',
+    '3661','3702','3706','4966','5269','5388','6147','6239',
+    '6271','6278','6414','6415','6446','6451','6456','6472',
+    '6477','6488','6531','6533','6550','6669','6770','6781',
+    // 電子 — 面板 / 光電 / PCB
+    '2327','2392','2395','3008','4904','4938','6121','6168','6176',
+    // 電子 — 網通 / 伺服器 / AI 概念
+    '2317','2345','2382','2474','2481','2498','3005','3023',
+    '3035','3058','3376','3545','3617','3596','4743','5274',
+    // 傳產
+    '1301','1303','1326','1402','1476','1590','1605',
+    '2002','2006','2014','2015','2049','2101','2105','2201','2207',
+    // 金融
+    '2801','2809','2812','2880','2881','2882','2883','2884',
+    '2885','2886','2887','2888','2889','2890','2891','2892',
+    '5871','5876','5880',
+    // 其他中低價題材
+    '1477','1504','1513','1536','1589','2301','2347','2354',
+    '2912','3060','3189','4919','4952','6116','8069','8070',
+    '9904','9910','9933','9945',
+];
+
+// Remove duplicates from list
+const DAYTRADE_UNIQUE_LIST = [...new Set(DAYTRADE_SCAN_LIST)];
+
+// Day-trade scanner endpoint
+app.get('/api/scanner/daytrade', async (req, res) => {
+    const symbolsParam = req.query.symbols;
+    const priceMin = parseFloat(req.query.priceMin) || 100;
+    const priceMax = parseFloat(req.query.priceMax) || 500;
+
+    const symbolList = symbolsParam
+        ? symbolsParam.split(',').map(s => s.trim().toUpperCase()).filter(Boolean)
+        : DAYTRADE_UNIQUE_LIST;
+
+    console.log(`\n⚡ 當沖掃描啟動: ${symbolList.length} 檔, 價格 ${priceMin}~${priceMax}`);
+
+    try {
+        const batchSize = 5;
+        const results = [];
+
+        for (let i = 0; i < symbolList.length; i += batchSize) {
+            const batch = symbolList.slice(i, i + batchSize);
+            const batchResults = await Promise.allSettled(
+                batch.map(async (sym) => {
+                    try {
+                        let symbol = sym;
+                        const isTW = /^\d{4,6}[A-Z]*$/.test(symbol);
+                        if (isTW) symbol = symbol + '.TW';
+
+                        // 3 months of daily data is sufficient for day trade analysis
+                        let data = await fetchAnalysisData(symbol, 3);
+                        if (!data && isTW) {
+                            const altSymbol = symbol.replace('.TW', '.TWO');
+                            data = await fetchAnalysisData(altSymbol, 3);
+                        }
+
+                        // Pre-filter by price range to reduce payload
+                        if (data && data.currentPrice >= priceMin && data.currentPrice <= priceMax) {
+                            return { originalSymbol: sym, ...data };
+                        }
+                        return null;
+                    } catch {
+                        return null;
+                    }
+                })
+            );
+            for (const r of batchResults) {
+                if (r.status === 'fulfilled' && r.value) {
+                    results.push(r.value);
+                }
+            }
+        }
+
+        console.log(`⚡ 掃描完成: ${results.length} 檔在 ${priceMin}~${priceMax} 區間`);
+        res.json({ stocks: results, scannedAt: new Date().toISOString(), priceRange: { min: priceMin, max: priceMax } });
+    } catch (err) {
+        console.error('Day-trade scanner error:', err.message);
+        res.status(500).json({ error: '當沖掃描失敗', details: err.message });
+    }
+});
+
 // ==================== 專業研究橋接 API ====================
 const { execFile } = require('child_process');
 const QUANT_DIR = path.join(__dirname, 'quant_research');
