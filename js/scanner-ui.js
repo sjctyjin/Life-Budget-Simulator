@@ -859,11 +859,15 @@
             if (daytradeMarket === 'us') {
                 $('dt-price-min').value = 10;
                 $('dt-price-max').value = 300;
-                $('dt-symbols').placeholder = '留空使用預設 ~120 檔美股 (AAPL, TSLA, NVDA...)';
+                $('dt-symbols').placeholder = '留空 = 動態熱門股 (Alpha Vantage) + 核心觀察清單';
+                // Show AV key input for US market
+                if ($('dt-avkey-row')) $('dt-avkey-row').style.display = '';
             } else {
                 $('dt-price-min').value = 100;
                 $('dt-price-max').value = 500;
-                $('dt-symbols').placeholder = '留空使用預設 ~120 檔中低價台股';
+                $('dt-symbols').placeholder = '留空 = 動態熱門股 (TWSE成交量排行) + 核心觀察清單';
+                // Hide AV key input for TW market
+                if ($('dt-avkey-row')) $('dt-avkey-row').style.display = 'none';
             }
         });
     });
@@ -883,13 +887,18 @@
         // Update loading text based on market
         var loadingText = $('daytrade-loading').querySelector('.loading-text');
         var loadingSub = $('daytrade-loading').querySelector('.loading-sub');
-        if (loadingText) loadingText.textContent = '正在掃描' + marketLabel + '突破標的...';
-        if (loadingSub) loadingSub.textContent = '分析 ~' + (daytradeMarket === 'us' ? '120' : '120') + ' 檔' + marketLabel + '的前日走勢 + 今日訊號';
+        if (loadingText) loadingText.textContent = '正在取得' + marketLabel + '熱門股並掃描突破標的...';
+        if (loadingSub) loadingSub.textContent = '動態熱門榜 + 核心觀察清單 → 合併掃描中';
 
         try {
             let url = '/api/scanner/daytrade?market=' + daytradeMarket + '&priceMin=' + priceMin + '&priceMax=' + priceMax;
             if (customSymbols) {
                 url += '&symbols=' + encodeURIComponent(customSymbols);
+            }
+            // Pass Alpha Vantage key if available (for US market)
+            var avKeyEl = $('dt-avkey');
+            if (avKeyEl && avKeyEl.value.trim()) {
+                url += '&avKey=' + encodeURIComponent(avKeyEl.value.trim());
             }
 
             const res = await fetch(url);
@@ -912,6 +921,7 @@
                     shortName: stock.shortName,
                     currentPrice: stock.currentPrice,
                     currency: data.currency || 'TWD',
+                    source: stock.source || 'core',
                     ...dtResult,
                     days: stock.days,
                 });
@@ -946,7 +956,9 @@
         if (filter && filter !== 'all') {
             filtered = results.filter(function(r) { return r.todayType === filter; });
         }
-        $('dt-count').textContent = '找到 ' + filtered.length + ' 檔候選';
+        var trendCount = filtered.filter(function(r) { return r.source === 'trending'; }).length;
+        var coreCount = filtered.filter(function(r) { return r.source === 'core'; }).length;
+        $('dt-count').textContent = '找到 ' + filtered.length + ' 檔候選' + (trendCount > 0 ? ' (🔥 ' + trendCount + ' 動態 + 📋 ' + coreCount + ' 核心)' : '');
 
         var html = '<thead><tr>' +
             '<th data-dt-sort="rank"># <span class="sort-arrow">▼</span></th>' +
@@ -966,10 +978,11 @@
             var breakoutColor = getScoreColor(s.breakoutScore);
             var compositeColor = getScoreColor(s.compositeScore);
             var volColor = s.yesterdayVolRatio >= 1.5 ? 'text-cyan' : (s.yesterdayVolRatio >= 1.2 ? 'text-yellow' : '');
+            var sourceBadge = s.source === 'trending' ? '<span class="dt-source-badge dt-source-trending" title="動態熱門榜">🔥</span>' : '<span class="dt-source-badge dt-source-core" title="核心觀察清單">📋</span>';
 
             html += '<tr class="dt-result-row" data-idx="' + i + '">' +
                 '<td>' + (i + 1) + '</td>' +
-                '<td class="scan-symbol-click dt-symbol-cell" data-symbol="' + s.symbol + '">' + s.symbol + '<div class="dt-shortname">' + (s.shortName || '') + '</div></td>' +
+                '<td class="scan-symbol-click dt-symbol-cell" data-symbol="' + s.symbol + '">' + sourceBadge + ' ' + s.symbol + '<div class="dt-shortname">' + (s.shortName || '') + '</div></td>' +
                 '<td>' + fmtPrice(s.currentPrice) + '</td>' +
                 '<td class="' + yChgCls + '">' + (s.yesterdayChangePct >= 0 ? '+' : '') + fmtNum(s.yesterdayChangePct, 2) + '%</td>' +
                 '<td class="' + volColor + '">' + fmtNum(s.yesterdayVolRatio, 1) + 'x</td>' +

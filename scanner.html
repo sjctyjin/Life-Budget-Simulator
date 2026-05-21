@@ -19,6 +19,7 @@
             <div class="scanner-nav-links">
                 <a href="index.html">← 返回主模擬器</a>
                 <a href="ghost.html">👻 幽靈模式</a>
+                <a href="journal.html">📓 復盤日誌</a>
                 <a href="scanner-guide.html" style="color:var(--scanner-secondary); font-weight:bold;">📑 判斷準則詳解</a>
             </div>
             <h1>🧠 決策引擎</h1>
@@ -143,11 +144,10 @@
         <!-- ===================== TAB: DAY TRADE SCANNER ===================== -->
         <div class="scanner-panel" id="panel-daytrade">
             <div class="scanner-glass">
-                <h2>⚡ 當沖掃描器 — 突破+續攻選股</h2>
+                <h2>⚡ 當沖掃描器 — 動態熱門 + 突破選股</h2>
                 <p style="color:var(--text-dim);margin-bottom:16px;line-height:1.6;">
-                    一鍵掃描前一日有<strong style="color:var(--accent-green)">強勢突破</strong>，且今日出現
-                    <strong style="color:var(--accent-green)">續攻</strong>或<strong style="color:var(--accent-yellow)">止跌回穩</strong>訊號的股票。<br>
-                    支援台股與美股，適合盤中短線操作。
+                    <strong style="color:var(--scanner-primary)">🔥 動態選股</strong>：自動從證交所成交量排行（台股）及 Alpha Vantage 漲跌幅/成交量榜（美股）取得當前市場焦點股。<br>
+                    再合併核心觀察清單，掃描前日<strong style="color:var(--accent-green)">突破</strong>訊號 + 今日<strong style="color:var(--accent-green)">續攻</strong>/<strong style="color:var(--accent-yellow)">止跌</strong>訊號。
                 </p>
 
                 <!-- Market Toggle -->
@@ -167,13 +167,27 @@
                     </div>
                     <div class="form-group" style="flex:1;">
                         <label class="form-label" for="dt-symbols">自訂股票池（選填）</label>
-                        <input type="text" class="form-input" id="dt-symbols" placeholder="留空使用預設股票池">
+                        <input type="text" class="form-input" id="dt-symbols" placeholder="留空 = 動態熱門股 + 核心觀察清單">
                     </div>
                     <button class="btn btn-scanner" id="btn-daytrade-scan" style="background:linear-gradient(135deg,#10b981,#06b6d4);box-shadow:0 4px 20px rgba(16,185,129,0.3);">⚡ 開始掃描</button>
+                </div>
+                <!-- Alpha Vantage Key (for US market, optional) -->
+                <div class="analysis-input-row" id="dt-avkey-row" style="margin-bottom:16px;display:none;">
+                    <div class="form-group" style="flex:1;">
+                        <label class="form-label" for="dt-avkey">Alpha Vantage API Key（選填，美股動態選股用）</label>
+                        <input type="text" class="form-input" id="dt-avkey" placeholder="留空使用 demo key，免費申請：alphavantage.co/support">
+                    </div>
                 </div>
 
                 <!-- Strategy summary -->
                 <div class="dt-strategy-box">
+                    <div class="dt-strategy-item">
+                        <span class="dt-strategy-icon">🔥</span>
+                        <div>
+                            <div class="dt-strategy-label">動態選股</div>
+                            <div class="dt-strategy-desc">台股：TWSE成交量Top20 / 美股：Alpha Vantage漲跌幅+成交量榜</div>
+                        </div>
+                    </div>
                     <div class="dt-strategy-item">
                         <span class="dt-strategy-icon">📊</span>
                         <div>
@@ -201,8 +215,8 @@
             <!-- Loading -->
             <div class="scanner-loading" id="daytrade-loading">
                 <div class="loading-spinner"></div>
-                <div class="loading-text">正在掃描台股突破標的...</div>
-                <div class="loading-sub">分析 ~120 檔股票的前日走勢 + 今日訊號</div>
+                <div class="loading-text">正在取得熱門股並掃描突破標的...</div>
+                <div class="loading-sub">動態熱門榜 + 核心觀察清單 → 合併掃描中</div>
             </div>
 
             <!-- Results -->

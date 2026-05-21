@@ -675,7 +675,7 @@
 /* ---- Day Trade Strategy Box ---- */
 .dt-strategy-box {
     display: grid;
-    grid-template-columns: repeat(3, 1fr);
+    grid-template-columns: repeat(4, 1fr);
     gap: 12px;
     margin-top: 16px;
     padding: 16px;
@@ -797,6 +797,21 @@
     max-width: 100px;
     overflow: hidden;
     text-overflow: ellipsis;
+}
+
+/* ---- Day Trade Source Badges ---- */
+.dt-source-badge {
+    font-size: 0.75rem;
+    vertical-align: middle;
+    cursor: help;
+}
+
+.dt-source-trending {
+    filter: none;
+}
+
+.dt-source-core {
+    opacity: 0.6;
 }
 
 /* ---- Day Trade Selected Row ---- */

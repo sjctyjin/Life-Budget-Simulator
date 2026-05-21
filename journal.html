@@ -1,0 +1,487 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>📓 當沖復盤日誌 — AI 交易顧問 | Life Budget Simulator</title>
+    <meta name="description" content="當沖交易復盤日誌與 AI 心態顧問。記錄每日交易、偵測 FOMO 與報復性交易、追蹤心態進化。">
+    <link rel="icon" href="favicon.svg" type="image/svg+xml">
+    <link rel="stylesheet" href="css/journal.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+</head>
+<body>
+    <div class="journal-container">
+
+        <!-- ===================== HEADER ===================== -->
+        <div class="journal-header">
+            <div class="journal-nav-links">
+                <a href="index.html">← 返回主模擬器</a>
+                <a href="scanner.html">🧠 決策引擎</a>
+                <a href="ghost.html">👻 幽靈模式</a>
+            </div>
+            <h1>📓 當沖復盤日誌</h1>
+            <p>AI 心態顧問 × 交易覆盤 × 紀律追蹤 — 讓數據取代感覺</p>
+        </div>
+
+        <!-- ===================== TAB NAV ===================== -->
+        <div class="journal-tabs">
+            <button class="journal-tab active" data-panel="advisor" id="tab-advisor">🤖 AI 顧問</button>
+            <button class="journal-tab" data-panel="journal" id="tab-journal">📝 復盤日誌</button>
+            <button class="journal-tab" data-panel="dashboard" id="tab-dashboard">📊 歷史分析</button>
+        </div>
+
+        <!-- ===================== TAB 1: AI ADVISOR ===================== -->
+        <div class="journal-panel active" id="panel-advisor">
+
+            <!-- ===== Sector Radar ===== -->
+            <div class="journal-glass sector-radar" id="sector-radar">
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;flex-wrap:wrap;gap:10px;">
+                    <h2 style="margin-bottom:0;">📡 族群動能雷達</h2>
+                    <div style="display:flex;gap:8px;align-items:center;">
+                        <select class="form-input" id="radar-market" style="max-width:110px;font-size:0.85rem;">
+                            <option value="tw">🇹🇼 台股</option>
+                            <option value="us">🇺🇸 美股</option>
+                        </select>
+                        <button class="btn btn-journal-outline btn-sm" id="btn-refresh-radar">📡 掃描</button>
+                        <label style="display:flex;align-items:center;gap:5px;font-size:0.8rem;color:var(--text-dim);cursor:pointer;">
+                            <input type="checkbox" id="radar-auto-refresh" style="accent-color:var(--journal-primary);"> 自動 (3分鐘)
+                        </label>
+                    </div>
+                </div>
+                <p style="color:var(--text-dim);font-size:0.85rem;margin-bottom:16px;">
+                    偵測各族群的 Volume Ratio（今日成交量 / 5日均量）。<span style="color:var(--accent-red);">🔥 VR ≥ 2x = 大量資金湧入！</span>
+                </p>
+                <div id="radar-loading" style="display:none;text-align:center;padding:20px;color:var(--text-dim);">
+                    ⏳ 正在掃描族群動能...（約需 15~30 秒）
+                </div>
+                <div id="radar-results">
+                    <div class="empty-state" id="radar-empty">
+                        <span class="empty-icon">📡</span>
+                        <p>點擊「掃描」偵測今日族群資金流向</p>
+                    </div>
+                </div>
+                <div id="radar-timestamp" style="text-align:right;font-size:0.75rem;color:var(--text-dim);margin-top:8px;"></div>
+            </div>
+
+            <div class="journal-glass">
+                <h2>🤖 進場前 AI 心態檢核</h2>
+                <p style="color:var(--text-dim);margin-bottom:20px;line-height:1.6;">
+                    在你按下「買進」之前，先告訴 AI 你的理由。<br>
+                    它會幫你判斷這是<strong style="color:var(--accent-green)">有計畫的交易</strong>，
+                    還是<strong style="color:var(--accent-red)">FOMO / 報復性交易</strong>。
+                </p>
+
+                <!-- Symbol & Direction -->
+                <div class="journal-form-row">
+                    <div class="journal-input-group" style="max-width:200px; flex-direction:row; align-items:flex-end; gap:8px;">
+                        <div style="flex:1;">
+                            <label class="form-label" for="adv-symbol">股票代號</label>
+                            <input type="text" class="form-input" id="adv-symbol" placeholder="如 2344, MU">
+                        </div>
+                        <button class="btn btn-journal-outline btn-sm" id="btn-adv-vwap" style="padding:10px 12px; height:42px;" title="自動取得當日 VWAP">🔄 VWAP</button>
+                    </div>
+                    <div class="journal-input-group" style="max-width:100px;">
+                        <label class="form-label" for="adv-market">市場</label>
+                        <select class="form-input" id="adv-market">
+                            <option value="tw">🇹🇼 台股</option>
+                            <option value="us">🇺🇸 美股</option>
+                        </select>
+                    </div>
+                    <div class="journal-input-group">
+                        <label class="form-label">方向</label>
+                        <div class="direction-toggle">
+                            <button class="direction-btn long active" data-dir="long">📈 做多</button>
+                            <button class="direction-btn short" data-dir="short">📉 做空</button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Reason -->
+                <div class="journal-form-section">
+                    <label class="form-label" for="adv-reason">進場理由（越詳細越好）</label>
+                    <textarea class="journal-textarea" id="adv-reason" placeholder="例：看到美股 MU 拉高，覺得今天記憶體一定會跟漲，想趁開盤追高買進...&#10;&#10;或是：VWAP 斜率向上，股價回測 VWAP 量縮止跌，計畫在 VWAP 附近買進，跌破 VWAP 停損..."></textarea>
+                </div>
+
+                <!-- Emotion Selector -->
+                <div class="journal-form-section">
+                    <label class="form-label">你現在的情緒狀態</label>
+                    <div class="emotion-grid" id="adv-emotion-grid">
+                        <button class="emotion-btn revenge" data-emotion="revenge">
+                            <span class="emotion-emoji">😤</span>
+                            <span class="emotion-label">急躁/想回本</span>
+                        </button>
+                        <button class="emotion-btn fomo" data-emotion="fomo">
+                            <span class="emotion-emoji">😰</span>
+                            <span class="emotion-label">怕錯過</span>
+                        </button>
+                        <button class="emotion-btn calm" data-emotion="calm">
+                            <span class="emotion-emoji">😌</span>
+                            <span class="emotion-label">冷靜/有計畫</span>
+                        </button>
+                        <button class="emotion-btn hesitant" data-emotion="hesitant">
+                            <span class="emotion-emoji">🤔</span>
+                            <span class="emotion-label">猶豫不決</span>
+                        </button>
+                        <button class="emotion-btn overconfident" data-emotion="overconfident">
+                            <span class="emotion-emoji">🔥</span>
+                            <span class="emotion-label">興奮/過度自信</span>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Daily Loss & Meltdown -->
+                <div class="journal-form-row">
+                    <div class="journal-input-group" style="max-width:200px;">
+                        <label class="form-label" for="adv-daily-loss">今日已累計虧損</label>
+                        <input type="number" class="form-input" id="adv-daily-loss" value="0" min="0" step="100" placeholder="0">
+                    </div>
+                    <div class="journal-input-group" style="max-width:200px;">
+                        <label class="form-label" for="adv-meltdown">每日熔斷金額</label>
+                        <input type="number" class="form-input" id="adv-meltdown" value="5000" min="1000" step="1000">
+                    </div>
+                </div>
+
+                <!-- Submit -->
+                <div style="margin-top:20px;">
+                    <button class="btn btn-journal" id="btn-evaluate" style="width:100%;padding:16px;font-size:1.1rem;">
+                        🤖 讓 AI 評估我的交易計畫
+                    </button>
+                </div>
+            </div>
+
+            <!-- Meltdown Banner -->
+            <div class="meltdown-banner" id="meltdown-banner">
+                🚨 <strong>情緒熔斷警告</strong>：今日虧損已超過設定上限！強烈建議立刻停止交易，關閉看盤軟體。
+            </div>
+
+            <!-- AI Verdict Result -->
+            <div class="journal-results" id="advisor-results">
+                <div class="verdict-card" id="verdict-card">
+                    <div class="verdict-header">
+                        <div class="verdict-score-ring">
+                            <span class="verdict-score" id="verdict-score">--</span>
+                            <span class="verdict-score-label">信心分數</span>
+                        </div>
+                        <div class="verdict-title-area">
+                            <div class="verdict-text" id="verdict-text">--</div>
+                            <div class="verdict-flags" id="verdict-flags"></div>
+                        </div>
+                    </div>
+
+                    <div class="verdict-details" id="verdict-details">
+                        <!-- Populated by JS -->
+                    </div>
+
+                    <div class="verdict-advice" id="verdict-advice">
+                        <!-- Populated by JS -->
+                    </div>
+
+                    <div class="verdict-actions">
+                        <button class="btn btn-journal-success" id="btn-proceed" style="display:none;">
+                            ✅ 我決定按計畫進場
+                        </button>
+                        <button class="btn btn-journal-danger" id="btn-abort" style="display:none;">
+                            🛑 我決定放棄此筆交易
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ===================== TAB 2: TRADE JOURNAL ===================== -->
+        <div class="journal-panel" id="panel-journal">
+            <div class="journal-glass">
+                <h2>📝 收盤後復盤記錄</h2>
+                <p style="color:var(--text-dim);margin-bottom:20px;line-height:1.6;">
+                    誠實記錄每一筆交易。AI 會從你的歷史紀錄中學習你的心態模式。
+                </p>
+
+                <!-- Add New Trade Form -->
+                <div id="trade-form-container">
+                    <h3 style="color:var(--journal-secondary);margin-bottom:16px;">新增交易紀錄</h3>
+
+                    <!-- Basic Info -->
+                    <div class="journal-form-row">
+                        <div class="journal-input-group" style="max-width:160px;">
+                            <label class="form-label" for="tr-date">日期</label>
+                            <input type="date" class="form-input" id="tr-date">
+                        </div>
+                        <div class="journal-input-group" style="max-width:200px; flex-direction:row; align-items:flex-end; gap:8px;">
+                            <div style="flex:1;">
+                                <label class="form-label" for="tr-symbol">股票代號</label>
+                                <input type="text" class="form-input" id="tr-symbol" placeholder="如 2344">
+                            </div>
+                            <button class="btn btn-journal-outline btn-sm" id="btn-tr-vwap" style="padding:10px 12px; height:42px;" title="自動取得當日 VWAP">🔄 VWAP</button>
+                        </div>
+                        <div class="journal-input-group" style="max-width:100px;">
+                            <label class="form-label" for="tr-market">市場</label>
+                            <select class="form-input" id="tr-market">
+                                <option value="tw">🇹🇼 台股</option>
+                                <option value="us">🇺🇸 美股</option>
+                            </select>
+                        </div>
+                        <div class="journal-input-group">
+                            <label class="form-label">方向</label>
+                            <div class="direction-toggle" id="tr-direction-toggle">
+                                <button class="direction-btn long active" data-dir="long">📈 做多</button>
+                                <button class="direction-btn short" data-dir="short">📉 做空</button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Price & Quantity -->
+                    <div class="journal-form-row">
+                        <div class="journal-input-group">
+                            <label class="form-label" for="tr-entry-price">進場價</label>
+                            <input type="number" class="form-input" id="tr-entry-price" step="0.01" placeholder="118.5">
+                        </div>
+                        <div class="journal-input-group">
+                            <label class="form-label" for="tr-exit-price">出場價</label>
+                            <input type="number" class="form-input" id="tr-exit-price" step="0.01" placeholder="112">
+                        </div>
+                        <div class="journal-input-group">
+                            <label class="form-label" for="tr-shares">張數/股數</label>
+                            <input type="number" class="form-input" id="tr-shares" value="1" min="1" step="1">
+                        </div>
+                        <div class="journal-input-group">
+                            <label class="form-label" for="tr-pnl">實收損益 (可手動修改)</label>
+                            <input type="number" class="form-input" id="tr-pnl" step="1" placeholder="-5000">
+                        </div>
+                    </div>
+
+                    <!-- VWAP Conditions -->
+                    <div class="journal-form-section">
+                        <label class="form-label">VWAP 技術條件（進場時）</label>
+                        <div class="journal-form-row">
+                            <div class="journal-input-group">
+                                <label class="form-label form-label-sm">股價 vs VWAP</label>
+                                <select class="form-input" id="tr-vwap-pos">
+                                    <option value="">-- 選擇 --</option>
+                                    <option value="above">在 VWAP 上方</option>
+                                    <option value="at">接近 VWAP</option>
+                                    <option value="below">在 VWAP 下方</option>
+                                </select>
+                            </div>
+                            <div class="journal-input-group">
+                                <label class="form-label form-label-sm">VWAP 斜率</label>
+                                <select class="form-input" id="tr-vwap-slope">
+                                    <option value="">-- 選擇 --</option>
+                                    <option value="up">向上 ↗</option>
+                                    <option value="flat">持平 →</option>
+                                    <option value="down">向下 ↘</option>
+                                </select>
+                            </div>
+                            <div class="journal-input-group">
+                                <label class="form-label form-label-sm">是否回測 VWAP</label>
+                                <select class="form-input" id="tr-vwap-pullback">
+                                    <option value="">-- 選擇 --</option>
+                                    <option value="yes">是，回測後進場</option>
+                                    <option value="no">否，直接追/殺</option>
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Emotion -->
+                    <div class="journal-form-section">
+                        <label class="form-label">進場時情緒</label>
+                        <div class="emotion-grid" id="tr-emotion-grid">
+                            <button class="emotion-btn revenge" data-emotion="revenge">
+                                <span class="emotion-emoji">😤</span>
+                                <span class="emotion-label">急躁/想回本</span>
+                            </button>
+                            <button class="emotion-btn fomo" data-emotion="fomo">
+                                <span class="emotion-emoji">😰</span>
+                                <span class="emotion-label">怕錯過</span>
+                            </button>
+                            <button class="emotion-btn calm" data-emotion="calm">
+                                <span class="emotion-emoji">😌</span>
+                                <span class="emotion-label">冷靜/有計畫</span>
+                            </button>
+                            <button class="emotion-btn hesitant" data-emotion="hesitant">
+                                <span class="emotion-emoji">🤔</span>
+                                <span class="emotion-label">猶豫不決</span>
+                            </button>
+                            <button class="emotion-btn overconfident" data-emotion="overconfident">
+                                <span class="emotion-emoji">🔥</span>
+                                <span class="emotion-label">興奮/過度自信</span>
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Reason -->
+                    <div class="journal-form-section">
+                        <label class="form-label" for="tr-reason">進場理由</label>
+                        <textarea class="journal-textarea" id="tr-reason" rows="3" placeholder="當時為什麼想進場？看到了什麼？"></textarea>
+                    </div>
+
+                    <!-- Review -->
+                    <div class="journal-form-section">
+                        <label class="form-label" for="tr-right">✅ 這筆交易做對了什麼？</label>
+                        <textarea class="journal-textarea" id="tr-right" rows="2" placeholder="例：有嚴格執行停損、等到回測再進場"></textarea>
+                    </div>
+                    <div class="journal-form-section">
+                        <label class="form-label" for="tr-wrong">❌ 這筆交易做錯了什麼？</label>
+                        <textarea class="journal-textarea" id="tr-wrong" rows="2" placeholder="例：追高買在最高點、帶著報復心態"></textarea>
+                    </div>
+                    <div class="journal-form-section">
+                        <label class="form-label" for="tr-improve">📌 下次如何改進？</label>
+                        <textarea class="journal-textarea" id="tr-improve" rows="2" placeholder="例：等VWAP回測再進場，不要開盤追"></textarea>
+                    </div>
+
+                    <!-- Tags -->
+                    <div class="journal-form-section">
+                        <label class="form-label">交易標籤（可多選）</label>
+                        <div class="tag-grid" id="tr-tag-grid">
+                            <button class="tag-btn" data-tag="FOMO">😰 FOMO</button>
+                            <button class="tag-btn" data-tag="報復">😤 報復</button>
+                            <button class="tag-btn" data-tag="追高">🚀 追高</button>
+                            <button class="tag-btn" data-tag="接刀">🔪 接刀</button>
+                            <button class="tag-btn" data-tag="有計畫">📋 有計畫</button>
+                            <button class="tag-btn" data-tag="紀律">✅ 紀律</button>
+                            <button class="tag-btn" data-tag="過度自信">🔥 過度自信</button>
+                            <button class="tag-btn" data-tag="猶豫">🤔 猶豫</button>
+                        </div>
+                    </div>
+
+                    <!-- Submit -->
+                    <div style="margin-top:20px;display:flex;gap:12px;">
+                        <button class="btn btn-journal" id="btn-save-trade" style="flex:1;padding:14px;">
+                            💾 儲存交易紀錄
+                        </button>
+                        <button class="btn btn-journal-outline" id="btn-clear-form" style="padding:14px;">
+                            🗑️ 清空
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Trade History -->
+            <div class="journal-glass" style="margin-top:24px;">
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
+                    <h2 style="margin-bottom:0;">📜 交易歷史</h2>
+                    <div style="display:flex;gap:8px;align-items:center;">
+                        <input type="text" class="form-input" id="trade-search" placeholder="搜尋代號..." style="max-width:150px;font-size:0.85rem;">
+                        <button class="btn btn-journal-outline btn-sm" id="btn-export-csv">📥 匯出 CSV</button>
+                    </div>
+                </div>
+                <div class="trade-list" id="trade-list">
+                    <div class="empty-state" id="empty-trade-list">
+                        <span class="empty-icon">📝</span>
+                        <p>尚無交易紀錄</p>
+                        <p class="empty-sub">開始記錄你的第一筆交易吧！</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ===================== TAB 3: DASHBOARD ===================== -->
+        <div class="journal-panel" id="panel-dashboard">
+            <div class="journal-glass">
+                <h2>📊 交易表現總覽</h2>
+
+                <!-- Date Range Filter -->
+                <div class="journal-form-row" style="margin-bottom:20px;">
+                    <div class="journal-input-group" style="max-width:160px;">
+                        <label class="form-label" for="dash-start">起始日期</label>
+                        <input type="date" class="form-input" id="dash-start">
+                    </div>
+                    <div class="journal-input-group" style="max-width:160px;">
+                        <label class="form-label" for="dash-end">結束日期</label>
+                        <input type="date" class="form-input" id="dash-end">
+                    </div>
+                    <div class="journal-input-group" style="max-width:120px;">
+                        <label class="form-label" for="dash-market">市場</label>
+                        <select class="form-input" id="dash-market">
+                            <option value="all">全部</option>
+                            <option value="tw">🇹🇼 台股</option>
+                            <option value="us">🇺🇸 美股</option>
+                        </select>
+                    </div>
+                    <button class="btn btn-journal" id="btn-refresh-dash" style="padding:10px 20px;">🔄 更新</button>
+                </div>
+
+                <!-- Stats Grid -->
+                <div class="stats-grid" id="stats-grid">
+                    <div class="stat-card" id="stat-total">
+                        <div class="stat-value">0</div>
+                        <div class="stat-label">總交易數</div>
+                    </div>
+                    <div class="stat-card" id="stat-winrate">
+                        <div class="stat-value">--%</div>
+                        <div class="stat-label">勝率</div>
+                    </div>
+                    <div class="stat-card" id="stat-pnl">
+                        <div class="stat-value">$0</div>
+                        <div class="stat-label">累計損益</div>
+                    </div>
+                    <div class="stat-card" id="stat-discipline">
+                        <div class="stat-value">--%</div>
+                        <div class="stat-label">紀律遵守率</div>
+                    </div>
+                    <div class="stat-card" id="stat-avg-win">
+                        <div class="stat-value">$0</div>
+                        <div class="stat-label">平均獲利</div>
+                    </div>
+                    <div class="stat-card" id="stat-avg-loss">
+                        <div class="stat-value">$0</div>
+                        <div class="stat-label">平均虧損</div>
+                    </div>
+                    <div class="stat-card" id="stat-max-win">
+                        <div class="stat-value">$0</div>
+                        <div class="stat-label">最大單筆獲利</div>
+                    </div>
+                    <div class="stat-card" id="stat-max-loss">
+                        <div class="stat-value">$0</div>
+                        <div class="stat-label">最大單筆虧損</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- P&L Curve Chart -->
+            <div class="journal-glass" style="margin-top:24px;">
+                <h2>📈 累計損益曲線</h2>
+                <div class="journal-chart-container">
+                    <canvas id="chart-pnl"></canvas>
+                </div>
+            </div>
+
+            <!-- Emotion Heatmap -->
+            <div class="journal-glass" style="margin-top:24px;">
+                <h2>🧠 心態與勝率分析</h2>
+                <p style="color:var(--text-dim);margin-bottom:16px;">哪種情緒狀態下你的交易表現最好？最差？</p>
+                <div class="emotion-heatmap" id="emotion-heatmap">
+                    <!-- Populated by JS -->
+                </div>
+            </div>
+
+            <!-- Tag Analysis -->
+            <div class="journal-glass" style="margin-top:24px;">
+                <h2>🏷️ 常犯錯誤分析</h2>
+                <div class="emotion-heatmap" id="tag-analysis">
+                    <!-- Populated by JS -->
+                </div>
+            </div>
+
+            <!-- Direction Analysis -->
+            <div class="journal-glass" style="margin-top:24px;">
+                <h2>📊 做多 vs 做空 表現</h2>
+                <div class="journal-chart-container" style="height:250px;">
+                    <canvas id="chart-direction"></canvas>
+                </div>
+            </div>
+
+            <!-- Empty state for dashboard -->
+            <div class="empty-state" id="empty-dashboard" style="display:none;">
+                <span class="empty-icon">📊</span>
+                <p>數據不足</p>
+                <p class="empty-sub">至少記錄 3 筆交易後才會顯示完整分析</p>
+            </div>
+        </div>
+
+    </div>
+
+    <script src="js/journal-engine.js"></script>
+    <script src="js/journal-ui.js"></script>
+</body>
+</html>
