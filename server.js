@@ -559,12 +559,13 @@ const SECTOR_GROUPS_TW = {
         name: '⚡ 被動元件', stocks: [
             { symbol: '2327', name: '國巨' }, { symbol: '3023', name: '信邦' },
             { symbol: '2428', name: '興勤' }, { symbol: '1533', name: '車王電' },
-            { symbol: '8163', name: '日電貿' }, { symbol: '2375', name: '智寶' },
+            { symbol: '3090', name: '日電貿' }, { symbol: '2375', name: '凱美' },
+            { symbol: '8163', name: '達方' },
         ]
     },
     optical: {
         name: '🔌 光通訊', stocks: [
-            { symbol: '2340', name: '光磊' }, { symbol: '3152', name: '璟德' },
+            { symbol: '2340', name: '台亞' }, { symbol: '3152', name: '璟德' },
             { symbol: '6209', name: '今國光' }, { symbol: '4966', name: '譜瑞' },
             { symbol: '2485', name: '兆赫' }, { symbol: '3558', name: '神準' },
         ]
