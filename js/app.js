@@ -250,11 +250,16 @@
             if (st.dataYears > 0) volDisplay += ` (基於 ${st.dataYears}年)`;
 
             let divDisplay = '';
-            if (st.dividendYield > 0) {
+            if (st.dividendYield > 0 || (st.payoutSchedule && st.payoutSchedule.some(p => p.stockYield > 0))) {
                 const schedule = st.payoutSchedule || [];
                 const monthsStr = schedule.map(p => p.month).join(', ');
-                const perShareStr = schedule.map(p => `${p.month}月: ${p.amountPerShare != null ? p.amountPerShare : '?'} 元`).join(' / ');
-                divDisplay = `<span class="stock-vol" style="color:var(--accent-purple)">預估殖利率 ${(st.dividendYield * 100).toFixed(2)}% | 每股配息: ${perShareStr} (配息月: ${monthsStr})</span>`;
+                const perShareStr = schedule.map(p => {
+                    let parts = [];
+                    if (p.amountPerShare > 0) parts.push(`現金 ${p.amountPerShare.toFixed(2)} 元`);
+                    if (p.stockYield > 0) parts.push(`股票 ${(p.stockYield * 10).toFixed(2)} 元 ( ${(p.stockYield * 100).toFixed(1)}% )`);
+                    return `${p.month}月: ` + (parts.length > 0 ? parts.join(' + ') : '0 元');
+                }).join(' / ');
+                divDisplay = `<span class="stock-vol" style="color:var(--accent-purple)">預估殖利率 ${(st.dividendYield * 100).toFixed(2)}% | 配股配息明細: ${perShareStr}</span>`;
             }
 
             let valDisplay = '';
@@ -1273,9 +1278,13 @@
                     <td class="${m.income.insuranceDividend > 0 ? 'text-yellow' : ''}" title="保單年度分紅">${m.income.insuranceDividend > 0 ? fmtCur(m.income.insuranceDividend) : '-'}</td>
                     <td class="${m.income.stockDividendIncome > 0 ? 'text-green' : ''}" title="${(() => {
                     if (!m.income.dividendDetails || m.income.dividendDetails.length === 0) return '本月無配息';
-                    return '【當月配息明細】\n' + m.income.dividendDetails.map(d =>
-                        `[${d.symbol}] 股數: ${d.shares.toLocaleString(undefined, { maximumFractionDigits: 2 })} | 每股配息: ${d.amountPerShare != null ? d.amountPerShare.toFixed(3) : '?'} 元 | 殖利率: ${(d.yield * 100).toFixed(2)}% | 配息: NT$ ${fmtCur(d.amount)}`
-                    ).join('\n');
+                    return '【當月配息明細】\n' + m.income.dividendDetails.map(d => {
+                        let str = `[${d.symbol}] 股數: ${d.shares.toLocaleString(undefined, { maximumFractionDigits: 2 })} | 每股配息: ${d.amountPerShare != null ? d.amountPerShare.toFixed(3) : '?'} 元 | 殖利率: ${(d.yield * 100).toFixed(2)}% | 配息: NT$ ${fmtCur(d.amount)}`;
+                        if (d.stockYield > 0) {
+                            str += ` | 配股率: ${(d.stockYield * 100).toFixed(2)}% (+${d.stockDivShares.toLocaleString(undefined, { maximumFractionDigits: 2 })} 股, 新股數: ${d.newShares.toLocaleString(undefined, { maximumFractionDigits: 2 })} 股)`;
+                        }
+                        return str;
+                    }).join('\n');
                 })()}">${m.income.stockDividendIncome > 0 ? fmtCur(m.income.stockDividendIncome) : '-'}</td>
                     <td class="${m.income.stockReturn >= 0 ? 'text-green' : 'text-red'}" title="${stockDetails}">${m.income.stockReturn !== 0 ? fmtCur(m.income.stockReturn) : '-'}</td>
                     <td class="text-red" title="${fixedDetails}">${fmtCur(m.expenses.totalFixed)}</td>
@@ -1326,9 +1335,11 @@
 
             if (m.income.dividendDetails) {
                 for (const d of m.income.dividendDetails) {
-                    if (!yearlySums.dividendDetails[d.symbol]) yearlySums.dividendDetails[d.symbol] = { shares: d.shares, amount: 0, totalAmountPerShare: 0 };
+                    if (!yearlySums.dividendDetails[d.symbol]) yearlySums.dividendDetails[d.symbol] = { shares: d.shares, amount: 0, totalAmountPerShare: 0, stockYield: 0, stockDivShares: 0 };
                     yearlySums.dividendDetails[d.symbol].amount += d.amount;
                     yearlySums.dividendDetails[d.symbol].totalAmountPerShare += (d.amountPerShare || 0);
+                    yearlySums.dividendDetails[d.symbol].stockYield += (d.stockYield || 0);
+                    yearlySums.dividendDetails[d.symbol].stockDivShares += (d.stockDivShares || 0);
                 }
             }
             if (m.income.stockReturnItems) {
@@ -1346,7 +1357,13 @@
         let sumDivTooltip = "本年度無配息";
         if (Object.keys(yearlySums.dividendDetails).length > 0) {
             sumDivTooltip = "【年度配息加總明細】\n" + Object.entries(yearlySums.dividendDetails)
-                .map(([sym, data]) => `[${sym}] 股數: ${data.shares.toLocaleString(undefined, { maximumFractionDigits: 2 })} | 年度每股配息合計: ${data.totalAmountPerShare.toFixed(4)} 元 | 總配息: NT$ ${fmtCur(data.amount)}`)
+                .map(([sym, data]) => {
+                    let str = `[${sym}] 股數: ${data.shares.toLocaleString(undefined, { maximumFractionDigits: 2 })} | 年度每股配息合計: ${data.totalAmountPerShare.toFixed(4)} 元 | 總配息: NT$ ${fmtCur(data.amount)}`;
+                    if (data.stockYield > 0) {
+                        str += ` | 年度累計配股率: ${(data.stockYield * 100).toFixed(2)}% | 累計配股: +${data.stockDivShares.toLocaleString(undefined, { maximumFractionDigits: 2 })} 股`;
+                    }
+                    return str;
+                })
                 .join('\n');
         }
 

@@ -42,6 +42,7 @@
         setupTradeForm();
         setupDashboard();
         renderTradeList();
+        setupBacktest();
     }
 
     // ==================== TAB 切換 ====================
@@ -1020,6 +1021,265 @@
         });
 
         container.innerHTML = html;
+    }
+
+    // ==================== 當沖回測 ====================
+    let btDayChart = null;
+    let btCachedChartData = null;
+    let btCachedTrades = null;
+
+    function setupBacktest() {
+        const btnRun = $('btn-run-backtest');
+        if (!btnRun) return;
+
+        btnRun.addEventListener('click', runDaytradeBacktest);
+    }
+
+    async function runDaytradeBacktest() {
+        const symbol = ($('bt-symbol').value || '2408').trim().toUpperCase();
+        const range = $('bt-range').value || '7d';
+        const stopLoss = parseFloat($('bt-stop-loss').value) || 1.5;
+        const trailTrigger = parseFloat($('bt-trail-trigger').value) || 1.5;
+        const trailStop = parseFloat($('bt-trail-stop').value) || 1.0;
+        const volume = parseInt($('bt-volume').value) || 1;
+        const tradeVolume = volume * 1000; // Taiwan stock 1 sheet = 1000 shares
+        const feeDiscount = parseFloat($('bt-fee-discount').value) || 0.6;
+
+        if (!symbol) {
+            alert('請輸入股票代號！');
+            return;
+        }
+
+        const loading = $('bt-loading');
+        const resultsContainer = $('bt-results-container');
+        const btnRun = $('btn-run-backtest');
+
+        if (loading) loading.style.display = 'block';
+        if (resultsContainer) resultsContainer.style.display = 'none';
+        btnRun.disabled = true;
+        btnRun.textContent = '⏳ 回測計算中...';
+
+        try {
+            const stopLossPct = stopLoss / 100;
+            const trailingTriggerPct = trailTrigger / 100;
+            const trailingStopPct = trailStop / 100;
+
+            const res = await fetch(`/api/backtest/daytrade?symbol=${encodeURIComponent(symbol)}&range=${range}&stopLossPct=${stopLossPct}&trailingTriggerPct=${trailingTriggerPct}&trailingStopPct=${trailingStopPct}&tradeVolume=${tradeVolume}&feeDiscount=${feeDiscount}`);
+            if (!res.ok) {
+                const errData = await res.json();
+                throw new Error(errData.error || '回測 API 回傳錯誤');
+            }
+
+            const data = await res.json();
+            
+            btCachedChartData = data.chartDataByDay;
+            btCachedTrades = data.trades;
+
+            // Render Summary Metrics
+            $('bt-summary-symbol').textContent = data.summary.symbol;
+            $('bt-stat-trades').textContent = data.summary.totalTrades;
+            
+            const wrEl = $('bt-stat-winrate');
+            wrEl.textContent = `${data.summary.winRate}%`;
+            wrEl.style.color = data.summary.winRate >= 50 ? 'var(--accent-green)' : 'var(--accent-red)';
+            
+            const pnlEl = $('bt-stat-pnl');
+            const sign = data.summary.totalPnLAmount >= 0 ? '+' : '';
+            pnlEl.textContent = `NT$ ${sign}${data.summary.totalPnLAmount.toLocaleString()}`;
+            pnlEl.style.color = data.summary.totalPnLAmount >= 0 ? 'var(--accent-green)' : 'var(--accent-red)';
+
+            const pctEl = $('bt-stat-pnl-pct');
+            const pctSign = data.summary.totalPnLPercent >= 0 ? '+' : '';
+            pctEl.textContent = `${pctSign}${data.summary.totalPnLPercent}%`;
+            pctEl.style.color = data.summary.totalPnLPercent >= 0 ? 'var(--accent-green)' : 'var(--accent-red)';
+
+            $('bt-stat-pf').textContent = data.summary.profitFactor;
+            
+            const mddEl = $('bt-stat-mdd');
+            mddEl.textContent = `${data.summary.maxDrawdown}%`;
+            mddEl.style.color = data.summary.maxDrawdown > 5 ? 'var(--accent-red)' : 'var(--text-bright)';
+
+            // Render Table Rows
+            const tbody = $('bt-trades-table').querySelector('tbody');
+            tbody.innerHTML = '';
+
+            data.trades.forEach((t, idx) => {
+                const tr = document.createElement('tr');
+                
+                const dirBadge = t.direction === 'LONG'
+                    ? '<span class="sector-change positive" style="padding:2px 6px; border-radius:4px; font-weight:600; background:rgba(16,185,129,0.1);">做多</span>'
+                    : t.direction === 'SHORT'
+                    ? '<span class="sector-change negative" style="padding:2px 6px; border-radius:4px; font-weight:600; background:rgba(239,68,68,0.1);">做空</span>'
+                    : '<span style="color:var(--text-dim);">無訊號</span>';
+
+                const pnlSign = t.pnlAmount >= 0 ? '+' : '';
+                const pnlClass = t.pnlAmount >= 0 ? 'positive' : 'negative';
+
+                tr.innerHTML = `
+                    <td style="font-weight:600;">${t.date}</td>
+                    <td>${dirBadge}</td>
+                    <td>${t.entryTime || '-'}</td>
+                    <td>${t.entryPrice > 0 ? 'NT$ ' + t.entryPrice.toFixed(2) : '-'}</td>
+                    <td>${t.exitTime || '-'}</td>
+                    <td>${t.exitPrice > 0 ? 'NT$ ' + t.exitPrice.toFixed(2) : '-'}</td>
+                    <td class="sector-change ${pnlClass}" style="font-weight:600;">${t.direction !== 'NONE' ? pnlSign + t.pnlPct.toFixed(2) + '%' : '-'}</td>
+                    <td style="font-size:0.9rem; color:var(--text-dim);">${t.direction !== 'NONE' ? 'NT$ ' + t.frictionCost.toLocaleString() : '-'}</td>
+                    <td class="sector-change ${pnlClass}" style="font-weight:600;">${t.direction !== 'NONE' ? pnlSign + 'NT$ ' + t.pnlAmount.toLocaleString() : '-'}</td>
+                    <td style="font-size:0.85rem; color:var(--text-dim);">${t.reason}</td>
+                    <td>
+                        ${t.direction !== 'NONE'
+                            ? `<button class="btn btn-journal-outline btn-sm btn-view-bt-chart" data-date="${t.date}" data-idx="${idx}" style="padding:4px 8px; font-size:0.75rem;">👁️ 檢視</button>`
+                            : '-'
+                        }
+                    </td>
+                `;
+                tbody.appendChild(tr);
+            });
+
+            // Bind chart viewer buttons
+            const viewBtns = tbody.querySelectorAll('.btn-view-bt-chart');
+            viewBtns.forEach(btn => {
+                btn.addEventListener('click', function() {
+                    const dateStr = this.dataset.date;
+                    const tradeIdx = parseInt(this.dataset.idx);
+                    const dayKlines = btCachedChartData[dateStr];
+                    const tradeDetail = btCachedTrades[tradeIdx];
+
+                    viewBtns.forEach(b => b.classList.remove('active'));
+                    this.classList.add('active');
+
+                    renderDaytradeChart(dateStr, dayKlines, tradeDetail);
+                });
+            });
+
+            if (resultsContainer) resultsContainer.style.display = 'block';
+
+            // Automatically trigger the first trade's chart
+            const firstActiveBtn = tbody.querySelector('.btn-view-bt-chart');
+            if (firstActiveBtn) {
+                firstActiveBtn.click();
+            } else {
+                if (btDayChart) {
+                    btDayChart.destroy();
+                    btDayChart = null;
+                }
+                $('bt-chart-date-label').textContent = '無有效交易日走勢可檢視';
+            }
+
+        } catch (err) {
+            alert('當沖回測失敗：' + err.message);
+        } finally {
+            if (loading) loading.style.display = 'none';
+            btnRun.disabled = false;
+            btnRun.textContent = '⚡ 執行當沖回測';
+        }
+    }
+
+    function renderDaytradeChart(dateStr, klines, tradeDetail) {
+        const ctx = $('chart-bt-day');
+        if (!ctx) return;
+
+        $('bt-chart-date-label').textContent = `${dateStr} — ${tradeDetail.direction === 'LONG' ? '做多' : '做空'} (${tradeDetail.pnlPct >= 0 ? '+' : ''}${tradeDetail.pnlPct.toFixed(2)}%)`;
+
+        const labels = klines.map(k => k.time.substring(0, 5));
+        const closePrices = klines.map(k => k.close);
+        const vwapValues = klines.map(k => k.vwap);
+
+        const entryTime = tradeDetail.entryTime;
+        const exitTime = tradeDetail.exitTime;
+
+        const pointRadii = klines.map(k => {
+            if (k.time === entryTime || k.time.substring(0, 5) === entryTime.substring(0, 5)) return 6;
+            if (k.time === exitTime || k.time.substring(0, 5) === exitTime.substring(0, 5)) return 6;
+            return 0;
+        });
+
+        const pointColors = klines.map(k => {
+            if (k.time === entryTime || k.time.substring(0, 5) === entryTime.substring(0, 5)) return '#10b981';
+            if (k.time === exitTime || k.time.substring(0, 5) === exitTime.substring(0, 5)) return '#f59e0b';
+            return 'transparent';
+        });
+
+        const pointStyles = klines.map(k => {
+            if (k.time === entryTime || k.time.substring(0, 5) === entryTime.substring(0, 5)) return 'triangle';
+            if (k.time === exitTime || k.time.substring(0, 5) === exitTime.substring(0, 5)) return 'rectRot';
+            return 'circle';
+        });
+
+        if (btDayChart) {
+            btDayChart.destroy();
+        }
+
+        btDayChart = new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: labels,
+                datasets: [
+                    {
+                        label: '收盤價',
+                        data: closePrices,
+                        borderColor: 'rgb(139, 92, 246)', // Indigo/purple
+                        backgroundColor: 'rgba(139, 92, 246, 0.1)',
+                        borderWidth: 2,
+                        pointRadius: pointRadii,
+                        pointBackgroundColor: pointColors,
+                        pointBorderColor: pointColors,
+                        pointStyle: pointStyles,
+                        tension: 0.1,
+                    },
+                    {
+                        label: 'VWAP',
+                        data: vwapValues,
+                        borderColor: 'rgb(245, 158, 11)', // orange/yellow
+                        borderWidth: 1.5,
+                        borderDash: [4, 4],
+                        pointRadius: 0,
+                        tension: 0.1,
+                    }
+                ]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                interaction: {
+                    mode: 'index',
+                    intersect: false,
+                },
+                plugins: {
+                    tooltip: {
+                        callbacks: {
+                            label: function(context) {
+                                let label = context.dataset.label || '';
+                                if (label) {
+                                    label += ': ';
+                                }
+                                if (context.parsed.y !== null) {
+                                    label += 'NT$ ' + context.parsed.y.toFixed(2);
+                                }
+                                const idx = context.dataIndex;
+                                const k = klines[idx];
+                                if (k.time === entryTime || k.time.substring(0, 5) === entryTime.substring(0, 5)) {
+                                    label += ' 🟢 進場開倉';
+                                } else if (k.time === exitTime || k.time.substring(0, 5) === exitTime.substring(0, 5)) {
+                                    label += ` 🔴 平倉出場 (${tradeDetail.reason})`;
+                                }
+                                return label;
+                            }
+                        }
+                    }
+                },
+                scales: {
+                    x: {
+                        grid: { color: 'rgba(255, 255, 255, 0.05)' },
+                        ticks: { color: 'rgba(255, 255, 255, 0.6)', maxTicksLimit: 12 }
+                    },
+                    y: {
+                        grid: { color: 'rgba(255, 255, 255, 0.05)' },
+                        ticks: { color: 'rgba(255, 255, 255, 0.6)' }
+                    }
+                }
+            }
+        });
     }
 
 })();

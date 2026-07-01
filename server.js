@@ -8,7 +8,7 @@ const path = require('path');
 const https = require('https');
 
 const app = express();
-const PORT = 8080;
+const PORT = process.env.PORT || 8080;
 
 // Serve static files
 app.use(express.static(path.join(__dirname)));
@@ -222,8 +222,8 @@ function processBacktestData(res, data, symbol) {
 }
 
 async function fetchStockData(symbol) {
-    // 1. Fetch 1 year of daily data to get accurate current price and trailing dividends
-    const url1y = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?interval=1d&range=1y&events=div`;
+    // 1. Fetch 1 year of daily data to get accurate current price and trailing dividends/splits
+    const url1y = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?interval=1d&range=1y&events=div,splits`;
     const data1y = await fetchJSON(url1y);
 
     if (!data1y || !data1y.chart || !data1y.chart.result || data1y.chart.result.length === 0) {
@@ -233,6 +233,7 @@ async function fetchStockData(symbol) {
     const result = data1y.chart.result[0];
     const meta = result.meta;
     const dividends = result.events?.dividends; // map of timestamp -> { date, amount }
+    const splits = result.events?.splits; // map of timestamp -> { date, numerator, denominator }
 
     const currentPrice = meta.regularMarketPrice || 0;
     const previousClose = meta.previousClose || meta.chartPreviousClose || currentPrice;
@@ -351,13 +352,53 @@ async function fetchStockData(symbol) {
         });
     }
 
+    // Process Splits (Stock Dividends) over the trailing 1 year
+    let stockDividendMonths = {};
+    if (splits) {
+        Object.values(splits).forEach(split => {
+            const date = new Date(split.date * 1000);
+            const month = date.getMonth() + 1;
+            const ratio = split.numerator / split.denominator;
+            // Taiwan stock dividends are represented as minor splits (e.g. 1020:1000 = 1.02)
+            if (ratio > 1.0 && ratio < 1.5) {
+                const stockYield = ratio - 1;
+                if (stockDividendMonths[month]) {
+                    stockDividendMonths[month] += stockYield;
+                } else {
+                    stockDividendMonths[month] = stockYield;
+                }
+            }
+        });
+    }
+
     const payoutSchedule = Object.keys(dividendMonths)
-        .map(m => ({
-            month: parseInt(m),
-            yield: Math.round(dividendMonths[m] * 10000) / 10000,
-            amountPerShare: Math.round(dividendAmounts[m] * 10000) / 10000
-        }))
-        .sort((a, b) => a.month - b.month);
+        .map(m => {
+            const monthInt = parseInt(m);
+            const cashYield = Math.round(dividendMonths[m] * 10000) / 10000;
+            const cashAmount = Math.round(dividendAmounts[m] * 10000) / 10000;
+            const stockYield = stockDividendMonths[monthInt] ? Math.round(stockDividendMonths[monthInt] * 10000) / 10000 : 0;
+            return {
+                month: monthInt,
+                yield: cashYield,
+                amountPerShare: cashAmount,
+                stockYield: stockYield
+            };
+        });
+
+    // Also include months that only have stock dividends
+    Object.keys(stockDividendMonths).forEach(m => {
+        const monthInt = parseInt(m);
+        if (!dividendMonths[m]) {
+            payoutSchedule.push({
+                month: monthInt,
+                yield: 0,
+                amountPerShare: 0,
+                stockYield: Math.round(stockDividendMonths[m] * 10000) / 10000
+            });
+        }
+    });
+
+    payoutSchedule.sort((a, b) => a.month - b.month);
 
     const dividendYield = currentPrice > 0 ? (ttmDividend / currentPrice) : 0;
 
@@ -1269,6 +1310,395 @@ app.post('/api/quant/run-research', express.json(), (req, res) => {
 // Check research status
 app.get('/api/quant/status', (req, res) => {
     res.json({ running: researchRunning });
+});
+
+// ==================== 當沖 VWAP 策略回測 API ====================
+app.get('/api/backtest/daytrade', async (req, res) => {
+    let symbol = (req.query.symbol || '2408').toUpperCase().trim();
+    const stopLossPct = parseFloat(req.query.stopLossPct) || 0.015;
+    const trailingTriggerPct = parseFloat(req.query.trailingTriggerPct) || 0.015;
+    const trailingStopPct = parseFloat(req.query.trailingStopPct) || 0.01;
+    const range = req.query.range || '7d';
+    const tradeVolume = parseInt(req.query.tradeVolume) || 1000;
+    const feeDiscount = parseFloat(req.query.feeDiscount) || 0.6;
+
+    const isTW = /^\d{4,6}[A-Z]*$/.test(symbol);
+    let yahooSymbol = symbol;
+    if (isTW && !symbol.includes('.')) {
+        yahooSymbol = symbol + '.TW';
+    }
+
+    try {
+        let allTimestamps = [];
+        let allOpens = [];
+        let allHighs = [];
+        let allLows = [];
+        let allCloses = [];
+        let allVolumes = [];
+
+        if (range === '30d') {
+            const nowSec = Math.floor(Date.now() / 1000);
+            const secondsPerBlock = 6 * 86400; // 6 days
+            const fetchPromises = [];
+
+            for (let i = 0; i < 5; i++) {
+                const p2 = nowSec - i * secondsPerBlock;
+                const p1 = p2 - secondsPerBlock;
+                const blockUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(yahooSymbol)}?interval=1m&period1=${p1}&period2=${p2}`;
+                fetchPromises.push(fetchJSON(blockUrl).catch(err => {
+                    console.warn(`Failed to fetch block ${i} for ${yahooSymbol}:`, err.message);
+                    return null;
+                }));
+            }
+
+            let rawBlocks = await Promise.all(fetchPromises);
+            
+            // Check if we need to fall back to OTC .TWO suffix
+            const firstBlockValid = rawBlocks.some(b => b && b.chart && b.chart.result && b.chart.result.length > 0);
+            if (!firstBlockValid && isTW && !symbol.includes('.')) {
+                yahooSymbol = symbol + '.TWO';
+                const altPromises = [];
+                for (let i = 0; i < 5; i++) {
+                    const p2 = nowSec - i * secondsPerBlock;
+                    const p1 = p2 - secondsPerBlock;
+                    const blockUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(yahooSymbol)}?interval=1m&period1=${p1}&period2=${p2}`;
+                    altPromises.push(fetchJSON(blockUrl).catch(err => null));
+                }
+                rawBlocks = await Promise.all(altPromises);
+            }
+
+            // Merge K-lines from all blocks
+            const dataPoints = [];
+            for (const rawData of rawBlocks) {
+                if (!rawData || !rawData.chart || !rawData.chart.result || rawData.chart.result.length === 0) continue;
+                const result = rawData.chart.result[0];
+                const ts = result.timestamp || [];
+                const q = result.indicators?.quote?.[0] || {};
+                const op = q.open || [];
+                const hi = q.high || [];
+                const lo = q.low || [];
+                const cl = q.close || [];
+                const vo = q.volume || [];
+
+                for (let j = 0; j < ts.length; j++) {
+                    if (cl[j] == null || op[j] == null || vo[j] == null) continue;
+                    dataPoints.push({
+                        timestamp: ts[j],
+                        open: op[j],
+                        high: hi[j],
+                        low: lo[j],
+                        close: cl[j],
+                        volume: vo[j]
+                    });
+                }
+            }
+
+            if (dataPoints.length === 0) {
+                return res.status(404).json({ error: `找不到 ${symbol} 的 30 天 1 分鐘歷史數據` });
+            }
+
+            dataPoints.sort((a, b) => a.timestamp - b.timestamp);
+            const uniquePoints = [];
+            let lastTs = null;
+            for (const pt of dataPoints) {
+                if (pt.timestamp !== lastTs) {
+                    uniquePoints.push(pt);
+                    lastTs = pt.timestamp;
+                }
+            }
+
+            allTimestamps = uniquePoints.map(p => p.timestamp);
+            allOpens = uniquePoints.map(p => p.open);
+            allHighs = uniquePoints.map(p => p.high);
+            allLows = uniquePoints.map(p => p.low);
+            allCloses = uniquePoints.map(p => p.close);
+            allVolumes = uniquePoints.map(p => p.volume);
+
+        } else {
+            // Standard range-based fetch (e.g. 5d, 7d)
+            let chartUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(yahooSymbol)}?interval=1m&range=${range}`;
+            let rawData = await fetchJSON(chartUrl);
+
+            if ((!rawData || !rawData.chart || !rawData.chart.result || rawData.chart.result.length === 0) && isTW && !symbol.includes('.')) {
+                yahooSymbol = symbol + '.TWO';
+                chartUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(yahooSymbol)}?interval=1m&range=${range}`;
+                rawData = await fetchJSON(chartUrl);
+            }
+
+            if (!rawData || !rawData.chart || !rawData.chart.result || rawData.chart.result.length === 0) {
+                return res.status(404).json({ error: `找不到 ${symbol} 的 1 分鐘歷史數據` });
+            }
+
+            const result = rawData.chart.result[0];
+            allTimestamps = result.timestamp || [];
+            const quotes = result.indicators?.quote?.[0] || {};
+            allOpens = quotes.open || [];
+            allHighs = quotes.high || [];
+            allLows = quotes.low || [];
+            allCloses = quotes.close || [];
+            allVolumes = quotes.volume || [];
+        }
+
+        if (allTimestamps.length === 0) {
+            return res.status(404).json({ error: `股票 ${symbol} 的 1 分鐘 K 線數據為空` });
+        }
+
+        const timestamps = allTimestamps;
+        const opens = allOpens;
+        const highs = allHighs;
+        const lows = allLows;
+        const closes = allCloses;
+        const volumes = allVolumes;
+
+        // Group data by date (YYYY-MM-DD) in Asia/Taipei timezone
+        const daysMap = new Map();
+        for (let i = 0; i < timestamps.length; i++) {
+            if (closes[i] == null || opens[i] == null || volumes[i] == null) continue;
+            const d = new Date(timestamps[i] * 1000);
+            const dateStr = d.toLocaleDateString('en-CA', { timeZone: 'Asia/Taipei' });
+            const timeStr = d.toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit', timeZone: 'Asia/Taipei' });
+
+            if (!daysMap.has(dateStr)) {
+                daysMap.set(dateStr, []);
+            }
+            daysMap.get(dateStr).push({
+                timestamp: timestamps[i],
+                time: timeStr,
+                open: opens[i],
+                high: highs[i],
+                low: lows[i],
+                close: closes[i],
+                volume: volumes[i]
+            });
+        }
+
+        const trades = [];
+        const chartDataByDay = {};
+
+        // Run strategy for each day
+        const sortedDates = Array.from(daysMap.keys()).sort();
+        for (const dateStr of sortedDates) {
+            const dayKlines = daysMap.get(dateStr).sort((a, b) => a.timestamp - b.timestamp);
+
+            // Compute VWAP for each minute
+            let cumPV = 0;
+            let cumVol = 0;
+            const processedKlines = [];
+
+            for (const k of dayKlines) {
+                const typicalPrice = (k.high + k.low + k.close) / 3;
+                cumPV += typicalPrice * k.volume;
+                cumVol += k.volume;
+                const vwapVal = cumVol > 0 ? cumPV / cumVol : typicalPrice;
+                processedKlines.push({
+                    ...k,
+                    vwap: Math.round(vwapVal * 100) / 100
+                });
+            }
+
+            // Find 09:15 data point
+            const idx0915 = processedKlines.findIndex(k => k.time === '09:15:00' || k.time.startsWith('09:15'));
+            if (idx0915 === -1) {
+                continue;
+            }
+
+            const k0915 = processedKlines[idx0915];
+            const vwap_0915 = k0915.vwap;
+            const close_0915 = k0915.close;
+
+            let direction = 0; // 1 = LONG, -1 = SHORT
+            if (close_0915 > vwap_0915) {
+                direction = 1;
+            } else if (close_0915 < vwap_0915) {
+                direction = -1;
+            }
+
+            chartDataByDay[dateStr] = processedKlines;
+
+            if (direction === 0) {
+                trades.push({
+                    date: dateStr,
+                    direction: 'NONE',
+                    entryTime: '-',
+                    entryPrice: 0,
+                    exitTime: '-',
+                    exitPrice: 0,
+                    pnlPct: 0,
+                    pnlAmount: 0,
+                    reason: '09:15 價格與 VWAP 持平，無訊號',
+                });
+                continue;
+            }
+
+            const idx0916 = idx0915 + 1;
+            if (idx0916 >= processedKlines.length) {
+                continue;
+            }
+
+            const k0916 = processedKlines[idx0916];
+            const entryPrice = k0916.open || k0915.close;
+            const entryTime = k0916.time;
+
+            let exitPrice = null;
+            let exitTime = null;
+            let exitReason = '收盤強制平倉';
+
+            let highestPriceSinceEntry = entryPrice;
+            let lowestPriceSinceEntry = entryPrice;
+
+            // Follow trade from 09:16 onwards
+            for (let i = idx0916; i < processedKlines.length; i++) {
+                const k = processedKlines[i];
+
+                highestPriceSinceEntry = Math.max(highestPriceSinceEntry, k.high);
+                lowestPriceSinceEntry = Math.min(lowestPriceSinceEntry, k.low);
+
+                // Check force close at 13:25 or later (Taiwan market ends at 13:30)
+                if (k.time >= '13:25:00') {
+                    exitPrice = k.close;
+                    exitTime = k.time;
+                    exitReason = '收盤強制平倉';
+                    break;
+                }
+
+                if (direction === 1) { // LONG
+                    // Stop loss check
+                    if (k.low <= entryPrice * (1 - stopLossPct)) {
+                        exitPrice = entryPrice * (1 - stopLossPct);
+                        exitTime = k.time;
+                        exitReason = '硬性停損';
+                        break;
+                    }
+                    // Trailing stop check
+                    if (highestPriceSinceEntry >= entryPrice * (1 + trailingTriggerPct)) {
+                        if (k.low <= highestPriceSinceEntry * (1 - trailingStopPct)) {
+                            exitPrice = highestPriceSinceEntry * (1 - trailingStopPct);
+                            exitTime = k.time;
+                            exitReason = '移動停利';
+                            break;
+                        }
+                    }
+                } else { // SHORT
+                    // Stop loss check
+                    if (k.high >= entryPrice * (1 + stopLossPct)) {
+                        exitPrice = entryPrice * (1 + stopLossPct);
+                        exitTime = k.time;
+                        exitReason = '硬性停損';
+                        break;
+                    }
+                    // Trailing stop check
+                    if (lowestPriceSinceEntry <= entryPrice * (1 - trailingTriggerPct)) {
+                        if (k.high >= lowestPriceSinceEntry * (1 + trailingStopPct)) {
+                            exitPrice = lowestPriceSinceEntry * (1 + trailingStopPct);
+                            exitTime = k.time;
+                            exitReason = '移動停利';
+                            break;
+                        }
+                    }
+                }
+            }
+
+            if (exitPrice === null) {
+                const kLast = processedKlines[processedKlines.length - 1];
+                exitPrice = kLast.close;
+                exitTime = kLast.time;
+                exitReason = '收盤強制平倉';
+            }
+
+            const entryTotal = entryPrice * tradeVolume;
+            const exitTotal = exitPrice * tradeVolume;
+
+            // Calculate fees (0.1425%, min 20 TWD)
+            let entryFee = Math.floor(entryTotal * 0.001425 * feeDiscount);
+            let exitFee = Math.floor(exitTotal * 0.001425 * feeDiscount);
+            if (entryFee < 20) entryFee = 20;
+            if (exitFee < 20) exitFee = 20;
+
+            // Calculate daytrade transaction tax (0.15% on the sell side)
+            let tax = 0;
+            let grossPnl = 0;
+            if (direction === 1) { // LONG: buy first, sell second
+                tax = Math.floor(exitTotal * 0.0015);
+                grossPnl = exitTotal - entryTotal;
+            } else { // SHORT: sell first, buy second
+                tax = Math.floor(entryTotal * 0.0015);
+                grossPnl = entryTotal - exitTotal;
+            }
+
+            const frictionCost = entryFee + exitFee + tax;
+            const netPnl = grossPnl - frictionCost;
+            const denominator = direction === 1 ? entryTotal : exitTotal;
+            const netReturnPct = denominator > 0 ? (netPnl / denominator) * 100 : 0;
+
+            trades.push({
+                date: dateStr,
+                direction: direction === 1 ? 'LONG' : 'SHORT',
+                entryTime: entryTime,
+                entryPrice: Math.round(entryPrice * 100) / 100,
+                exitTime: exitTime,
+                exitPrice: Math.round(exitPrice * 100) / 100,
+                grossPnl: grossPnl,
+                frictionCost: frictionCost,
+                pnlAmount: netPnl, // Net PnL (after costs)
+                pnlPct: Math.round(netReturnPct * 100) / 100, // Net return %
+                reason: exitReason,
+            });
+        }
+
+        // Calculate Summary Metrics
+        const activeTrades = trades.filter(t => t.direction !== 'NONE');
+        const wins = activeTrades.filter(t => t.pnlPct > 0);
+        const losses = activeTrades.filter(t => t.pnlPct < 0);
+
+        const totalTrades = activeTrades.length;
+        const winRate = totalTrades > 0 ? (wins.length / totalTrades) * 100 : 0;
+        const totalPnLPercent = activeTrades.reduce((acc, t) => acc + t.pnlPct, 0);
+        const totalPnLAmount = activeTrades.reduce((acc, t) => acc + t.pnlAmount, 0);
+
+        const grossProfit = wins.reduce((acc, t) => acc + t.pnlAmount, 0);
+        const grossLoss = Math.abs(losses.reduce((acc, t) => acc + t.pnlAmount, 0));
+        const profitFactor = grossLoss > 0 ? (grossProfit / grossLoss) : grossProfit > 0 ? 99.9 : 0;
+
+        // Calculate Maximum Drawdown (MDD) based on daily returns
+        let balance = 1000000;
+        let maxBalance = balance;
+        let maxDrawdown = 0;
+        const equityCurve = [balance];
+
+        for (const t of activeTrades) {
+            balance += t.pnlAmount;
+            equityCurve.push(balance);
+            if (balance > maxBalance) maxBalance = balance;
+            const dd = (maxBalance - balance) / maxBalance;
+            if (dd > maxDrawdown) maxDrawdown = dd;
+        }
+
+        res.json({
+            summary: {
+                symbol,
+                totalTrades,
+                wins: wins.length,
+                losses: losses.length,
+                winRate: Math.round(winRate * 100) / 100,
+                totalPnLPercent: Math.round(totalPnLPercent * 100) / 100,
+                totalPnLAmount,
+                profitFactor: Math.round(profitFactor * 100) / 100,
+                maxDrawdown: Math.round(maxDrawdown * 100) / 100,
+                tradeVolume,
+                stopLossPct: stopLossPct * 100,
+                trailingTriggerPct: trailingTriggerPct * 100,
+                trailingStopPct: trailingStopPct * 100,
+                feeDiscount: feeDiscount,
+            },
+            trades,
+            chartDataByDay,
+            equityCurve
+        });
+
+    } catch (err) {
+        console.error(`Error running intraday backtest for ${symbol}:`, err.message);
+        res.status(500).json({ error: '當沖回測計算失敗', details: err.message });
+    }
 });
 
 app.listen(PORT, () => {

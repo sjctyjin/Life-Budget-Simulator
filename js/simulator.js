@@ -428,13 +428,29 @@ class FinancialSimulator {
                             const currentAmountPerShare = st.priceNTD * payout.yield;
                             const dividendCash = currentAmountPerShare * st.shares;
                             stockDividendIncome += dividendCash;
+
+                            let stockDivShares = 0;
+                            const originalShares = st.shares;
+                            const originalPrice = st.priceNTD;
+
+                            // Handle stock dividend (splits) if any
+                            if (payout.stockYield && payout.stockYield > 0) {
+                                stockDivShares = st.shares * payout.stockYield;
+                                st.shares += stockDivShares;
+                                // Ex-dividend adjustment for stock dividend
+                                st.priceNTD /= (1 + payout.stockYield);
+                            }
+
                             dividendDetails.push({
                                 symbol: st.symbol || st.shortName || '股票',
-                                shares: st.shares,
-                                priceNTD: st.priceNTD,
+                                shares: originalShares,
+                                priceNTD: originalPrice,
                                 yield: payout.yield,
                                 amountPerShare: currentAmountPerShare,
                                 amount: dividendCash,
+                                stockYield: payout.stockYield || 0,
+                                stockDivShares: stockDivShares,
+                                newShares: st.shares
                             });
                         }
                     }

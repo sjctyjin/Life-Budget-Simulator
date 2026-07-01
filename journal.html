@@ -28,6 +28,7 @@
             <button class="journal-tab active" data-panel="advisor" id="tab-advisor">🤖 AI 顧問</button>
             <button class="journal-tab" data-panel="journal" id="tab-journal">📝 復盤日誌</button>
             <button class="journal-tab" data-panel="dashboard" id="tab-dashboard">📊 歷史分析</button>
+            <button class="journal-tab" data-panel="backtest" id="tab-backtest">🧪 當沖回測</button>
         </div>
 
         <!-- ===================== TAB 1: AI ADVISOR ===================== -->
@@ -476,6 +477,159 @@
                 <span class="empty-icon">📊</span>
                 <p>數據不足</p>
                 <p class="empty-sub">至少記錄 3 筆交易後才會顯示完整分析</p>
+            </div>
+        </div>
+
+        <!-- ===================== TAB 4: DAYTRADE BACKTEST ===================== -->
+        <style>
+        @keyframes bt-spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        .bt-spinner {
+            animation: bt-spin 1s linear infinite;
+        }
+        </style>
+        <div class="journal-panel" id="panel-backtest">
+            <div class="journal-glass">
+                <h2>🧪 當沖 VWAP 策略自動回測</h2>
+                <p style="color:var(--text-dim);margin-bottom:20px;line-height:1.6;">
+                    利用歷史真實的 1分鐘K線 數據，自動回測黃金 15 分鐘定錨 VWAP 決策模型。<br>
+                    在 09:15 依股價與 VWAP 的關係進場，配合硬性停損與移動停利，看看最終勝率與期望值。
+                </p>
+
+                <div class="journal-form-row">
+                    <div class="journal-input-group" style="max-width:150px;">
+                        <label class="form-label" for="bt-symbol">股票代號</label>
+                        <input type="text" class="form-input" id="bt-symbol" value="2408" placeholder="例 2408, 2330">
+                    </div>
+                    <div class="journal-input-group" style="max-width:120px;">
+                        <label class="form-label" for="bt-range">回測區間</label>
+                        <select class="form-input" id="bt-range">
+                            <option value="5d">過去 5 天</option>
+                            <option value="7d" selected>過去 7 天</option>
+                            <option value="30d">過去 30 天</option>
+                        </select>
+                    </div>
+                    <div class="journal-input-group" style="max-width:120px;">
+                        <label class="form-label" for="bt-volume">每筆張數</label>
+                        <input type="number" class="form-input" id="bt-volume" value="1" min="1" step="1">
+                        <p class="form-hint" style="margin-top:2px;">台股 1 張 = 1000 股</p>
+                    </div>
+                    <div class="journal-input-group" style="max-width:140px;">
+                        <label class="form-label" for="bt-fee-discount">手續費折扣</label>
+                        <select class="form-input" id="bt-fee-discount">
+                            <option value="1.0">無折扣 (10折)</option>
+                            <option value="0.6" selected>6 折</option>
+                            <option value="0.5">5 折</option>
+                            <option value="0.3">3 折</option>
+                            <option value="0.28">2.8 折</option>
+                            <option value="0.2">2 折</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="journal-form-row" style="margin-top:16px;">
+                    <div class="journal-input-group">
+                        <label class="form-label" for="bt-stop-loss">硬性停損比率 (%)</label>
+                        <input type="number" class="form-input" id="bt-stop-loss" value="1.5" min="0.1" max="10" step="0.1">
+                    </div>
+                    <div class="journal-input-group">
+                        <label class="form-label" for="bt-trail-trigger">啟用移動停利閥值 (%)</label>
+                        <input type="number" class="form-input" id="bt-trail-trigger" value="1.5" min="0.1" max="10" step="0.1">
+                        <p class="form-hint" style="margin-top:2px;">獲利達到此比例後啟動追蹤</p>
+                    </div>
+                    <div class="journal-input-group">
+                        <label class="form-label" for="bt-trail-stop">移動回撤回檔 (%)</label>
+                        <input type="number" class="form-input" id="bt-trail-stop" value="1.0" min="0.1" max="5" step="0.1">
+                        <p class="form-hint" style="margin-top:2px;">由最高點回檔此比例時停利</p>
+                    </div>
+                </div>
+
+                <div style="margin-top:24px;">
+                    <button class="btn btn-journal" id="btn-run-backtest" style="width:100%;padding:14px;font-size:1.05rem;">
+                        ⚡ 執行當沖回測
+                    </button>
+                </div>
+            </div>
+
+            <!-- Loading indicator -->
+            <div id="bt-loading" style="display:none;text-align:center;padding:30px;color:var(--text-dim);">
+                <div class="loading-spinner bt-spinner" style="margin: 0 auto 12px; width: 40px; height: 40px; border: 3px solid rgba(124,58,237,0.1); border-top-color: var(--journal-primary); border-radius: 50%;"></div>
+                <span>⏳ 正在下載歷史 1分鐘K線 資料並執行策略回測...</span>
+            </div>
+
+            <!-- Backtest Results Container -->
+            <div id="bt-results-container" style="display:none; margin-top:24px;">
+                <div class="journal-glass">
+                    <h3 style="color:var(--journal-secondary);margin-bottom:16px;">📊 回測績效總覽 (<span id="bt-summary-symbol"></span>)</h3>
+                    <div class="stats-grid">
+                        <div class="stat-card">
+                            <div class="stat-value" id="bt-stat-trades">0</div>
+                            <div class="stat-label">總交易次數</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-value" id="bt-stat-winrate" style="color:var(--accent-green);">0%</div>
+                            <div class="stat-label">策略勝率</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-value" id="bt-stat-pnl" style="color:var(--accent-green);">$0</div>
+                            <div class="stat-label">實質淨損益 (TWD)</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-value" id="bt-stat-pnl-pct">0%</div>
+                            <div class="stat-label">實質淨報酬率</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-value" id="bt-stat-pf">0</div>
+                            <div class="stat-label">獲利因子 (PF)</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-value" id="bt-stat-mdd" style="color:var(--accent-red);">0%</div>
+                            <div class="stat-label">最大回撤 (MDD)</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Daily Trades Table -->
+                <div class="journal-glass" style="margin-top:24px;">
+                    <h3 style="color:var(--journal-secondary);margin-bottom:16px;">📜 每日交易回測明細</h3>
+                    <div style="overflow-x:auto;">
+                        <table class="sector-stock-table" id="bt-trades-table" style="width:100%; border-collapse:collapse; text-align:left;">
+                            <thead>
+                                <tr>
+                                    <th>交易日期</th>
+                                    <th>方向</th>
+                                    <th>進場時間</th>
+                                    <th>進場價</th>
+                                    <th>出場時間</th>
+                                    <th>出場價</th>
+                                    <th>淨報酬%</th>
+                                    <th>交易成本</th>
+                                    <th>實質淨損益 (TWD)</th>
+                                    <th>平倉原因</th>
+                                    <th>互動分析</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <!-- Populated by JS -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- Interactive 1-minute Chart -->
+                <div class="journal-glass" style="margin-top:24px;">
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px; flex-wrap:wrap; gap:10px;">
+                        <h3 style="color:var(--journal-secondary);margin-bottom:0;">📈 盤中 1分K 與 VWAP 對照線圖</h3>
+                        <div style="color:var(--text-bright); font-weight:600; font-size:1.05rem;" id="bt-chart-date-label">
+                            請點選上方明細的 👁️ 檢視單日走勢
+                        </div>
+                    </div>
+                    <div class="journal-chart-container" style="height:350px; position:relative;">
+                        <canvas id="chart-bt-day"></canvas>
+                    </div>
+                </div>
             </div>
         </div>
 
