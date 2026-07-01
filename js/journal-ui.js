@@ -1033,6 +1033,26 @@
         if (!btnRun) return;
 
         btnRun.addEventListener('click', runDaytradeBacktest);
+
+        const selectStrategy = $('bt-strategy');
+        if (selectStrategy) {
+            selectStrategy.addEventListener('change', function() {
+                const strat = this.value;
+                if (strat === 'mean_reversion') {
+                    $('bt-stop-loss').value = '0.8';
+                    $('bt-trail-trigger').value = '1.0';
+                    $('bt-trail-stop').value = '0.5';
+                } else if (strat === 'orb') {
+                    $('bt-stop-loss').value = '1.5';
+                    $('bt-trail-trigger').value = '2.0';
+                    $('bt-trail-stop').value = '1.0';
+                } else { // vwap or OBI
+                    $('bt-stop-loss').value = '1.5';
+                    $('bt-trail-trigger').value = '1.5';
+                    $('bt-trail-stop').value = '1.0';
+                }
+            });
+        }
     }
 
     async function runDaytradeBacktest() {
@@ -1044,6 +1064,7 @@
         const volume = parseInt($('bt-volume').value) || 1;
         const tradeVolume = volume * 1000; // Taiwan stock 1 sheet = 1000 shares
         const feeDiscount = parseFloat($('bt-fee-discount').value) || 0.6;
+        const strategy = $('bt-strategy')?.value || 'vwap';
 
         if (!symbol) {
             alert('請輸入股票代號！');
@@ -1064,7 +1085,7 @@
             const trailingTriggerPct = trailTrigger / 100;
             const trailingStopPct = trailStop / 100;
 
-            const res = await fetch(`/api/backtest/daytrade?symbol=${encodeURIComponent(symbol)}&range=${range}&stopLossPct=${stopLossPct}&trailingTriggerPct=${trailingTriggerPct}&trailingStopPct=${trailingStopPct}&tradeVolume=${tradeVolume}&feeDiscount=${feeDiscount}`);
+            const res = await fetch(`/api/backtest/daytrade?symbol=${encodeURIComponent(symbol)}&range=${range}&stopLossPct=${stopLossPct}&trailingTriggerPct=${trailingTriggerPct}&trailingStopPct=${trailingStopPct}&tradeVolume=${tradeVolume}&feeDiscount=${feeDiscount}&strategy=${strategy}`);
             if (!res.ok) {
                 const errData = await res.json();
                 throw new Error(errData.error || '回測 API 回傳錯誤');

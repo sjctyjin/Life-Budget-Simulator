@@ -511,12 +511,23 @@
                             <option value="30d">過去 30 天</option>
                         </select>
                     </div>
-                    <div class="journal-input-group" style="max-width:120px;">
+                    <div class="journal-input-group" style="min-width:220px; flex-grow:1;">
+                        <label class="form-label" for="bt-strategy">當沖策略模型</label>
+                        <select class="form-input" id="bt-strategy">
+                            <option value="vwap" selected>VWAP 均價定錨決策策略</option>
+                            <option value="orb">ORB 開盤區間突破策略 (09:15)</option>
+                            <option value="obi">OBI 資金流失衡策略 (Rolling 15m)</option>
+                            <option value="mean_reversion">日內均值回歸策略 (Bollinger + RSI)</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="journal-form-row" style="margin-top:16px;">
+                    <div class="journal-input-group" style="max-width:100px;">
                         <label class="form-label" for="bt-volume">每筆張數</label>
                         <input type="number" class="form-input" id="bt-volume" value="1" min="1" step="1">
-                        <p class="form-hint" style="margin-top:2px;">台股 1 張 = 1000 股</p>
                     </div>
-                    <div class="journal-input-group" style="max-width:140px;">
+                    <div class="journal-input-group" style="max-width:130px;">
                         <label class="form-label" for="bt-fee-discount">手續費折扣</label>
                         <select class="form-input" id="bt-fee-discount">
                             <option value="1.0">無折扣 (10折)</option>
@@ -527,22 +538,17 @@
                             <option value="0.2">2 折</option>
                         </select>
                     </div>
-                </div>
-
-                <div class="journal-form-row" style="margin-top:16px;">
-                    <div class="journal-input-group">
-                        <label class="form-label" for="bt-stop-loss">硬性停損比率 (%)</label>
+                    <div class="journal-input-group" style="max-width:130px;">
+                        <label class="form-label" for="bt-stop-loss">停損比率 (%)</label>
                         <input type="number" class="form-input" id="bt-stop-loss" value="1.5" min="0.1" max="10" step="0.1">
                     </div>
-                    <div class="journal-input-group">
-                        <label class="form-label" for="bt-trail-trigger">啟用移動停利閥值 (%)</label>
+                    <div class="journal-input-group" style="max-width:140px;">
+                        <label class="form-label" for="bt-trail-trigger">移動停利閥值 (%)</label>
                         <input type="number" class="form-input" id="bt-trail-trigger" value="1.5" min="0.1" max="10" step="0.1">
-                        <p class="form-hint" style="margin-top:2px;">獲利達到此比例後啟動追蹤</p>
                     </div>
-                    <div class="journal-input-group">
-                        <label class="form-label" for="bt-trail-stop">移動回撤回檔 (%)</label>
+                    <div class="journal-input-group" style="max-width:130px;">
+                        <label class="form-label" for="bt-trail-stop">回撤波段 (%)</label>
                         <input type="number" class="form-input" id="bt-trail-stop" value="1.0" min="0.1" max="5" step="0.1">
-                        <p class="form-hint" style="margin-top:2px;">由最高點回檔此比例時停利</p>
                     </div>
                 </div>
 
