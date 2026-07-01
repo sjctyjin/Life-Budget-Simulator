@@ -1044,8 +1044,8 @@
                 if (timeframe === 'swing_daily') {
                     if (selectRange) {
                         selectRange.innerHTML = `
-                            <option value="3m">過去 3 個月</option>
-                            <option value="6m">過去 6 個月</option>
+                            <option value="3mo">過去 3 個月</option>
+                            <option value="6mo">過去 6 個月</option>
                             <option value="1y" selected>過去 1 年</option>
                             <option value="2y">過去 2 年</option>
                             <option value="5y">過去 5 年</option>
