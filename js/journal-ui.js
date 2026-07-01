@@ -1034,22 +1034,89 @@
 
         btnRun.addEventListener('click', runDaytradeBacktest);
 
+        const selectTimeframe = $('bt-timeframe');
+        const selectRange = $('bt-range');
         const selectStrategy = $('bt-strategy');
-        if (selectStrategy) {
-            selectStrategy.addEventListener('change', function() {
-                const strat = this.value;
-                if (strat === 'mean_reversion') {
-                    $('bt-stop-loss').value = '0.8';
-                    $('bt-trail-trigger').value = '1.0';
-                    $('bt-trail-stop').value = '0.5';
-                } else if (strat === 'orb') {
-                    $('bt-stop-loss').value = '1.5';
-                    $('bt-trail-trigger').value = '2.0';
-                    $('bt-trail-stop').value = '1.0';
-                } else { // vwap or OBI
+
+        if (selectTimeframe) {
+            selectTimeframe.addEventListener('change', function() {
+                const timeframe = this.value;
+                if (timeframe === 'swing_daily') {
+                    if (selectRange) {
+                        selectRange.innerHTML = `
+                            <option value="3m">過去 3 個月</option>
+                            <option value="6m">過去 6 個月</option>
+                            <option value="1y" selected>過去 1 年</option>
+                            <option value="2y">過去 2 年</option>
+                            <option value="5y">過去 5 年</option>
+                        `;
+                    }
+                    if (selectStrategy) {
+                        selectStrategy.innerHTML = `
+                            <option value="vwap" selected>SMA20 均線趨勢追隨策略</option>
+                            <option value="orb">唐奇安通道 (20日) 突破策略</option>
+                            <option value="obi">OBI 資金流波段策略 (Rolling 5d)</option>
+                            <option value="mean_reversion">日線波段均值回歸 (Bollinger + RSI)</option>
+                        `;
+                    }
+                    $('bt-stop-loss').value = '5.0';
+                    $('bt-trail-trigger').value = '5.0';
+                    $('bt-trail-stop').value = '3.0';
+                } else {
+                    if (selectRange) {
+                        selectRange.innerHTML = `
+                            <option value="5d">過去 5 天</option>
+                            <option value="7d" selected>過去 7 天</option>
+                            <option value="30d">過去 30 天</option>
+                        `;
+                    }
+                    if (selectStrategy) {
+                        selectStrategy.innerHTML = `
+                            <option value="vwap" selected>VWAP 均價定錨決策策略</option>
+                            <option value="orb">ORB 開盤區間突破策略 (09:15)</option>
+                            <option value="obi">OBI 資金流失衡策略 (Rolling 15m)</option>
+                            <option value="mean_reversion">日內均值回歸策略 (Bollinger + RSI)</option>
+                        `;
+                    }
                     $('bt-stop-loss').value = '1.5';
                     $('bt-trail-trigger').value = '1.5';
                     $('bt-trail-stop').value = '1.0';
+                }
+            });
+        }
+
+        if (selectStrategy) {
+            selectStrategy.addEventListener('change', function() {
+                const strat = this.value;
+                const timeframe = selectTimeframe?.value || 'intraday';
+                if (timeframe === 'swing_daily') {
+                    if (strat === 'mean_reversion') {
+                        $('bt-stop-loss').value = '3.0';
+                        $('bt-trail-trigger').value = '4.0';
+                        $('bt-trail-stop').value = '2.0';
+                    } else if (strat === 'orb') {
+                        $('bt-stop-loss').value = '5.0';
+                        $('bt-trail-trigger').value = '6.0';
+                        $('bt-trail-stop').value = '3.0';
+                    } else {
+                        $('bt-stop-loss').value = '5.0';
+                        $('bt-trail-trigger').value = '5.0';
+                        $('bt-trail-stop').value = '3.0';
+                    }
+                } else {
+                    if (strat === 'mean_reversion') {
+                        $('bt-stop-loss').value = '0.8';
+                        $('bt-trail-trigger').value = '1.0';
+                        $('bt-trail-stop').value = '0.5';
+                    } else if (strat === 'orb') {
+                        $('bt-stop-loss').value = '1.5';
+                        $('bt-trail-trigger').value = '2.0';
+                        $('bt-trail-stop').value = '1.0';
+                    } else {
+                        $('bt-stop-loss').value = '1.5';
+                        $('bt-trail-trigger').value = '1.5';
+                        $('bt-trail-stop').value = '1.0';
+                    }
                 }
             });
         }
@@ -1057,6 +1124,7 @@
 
     async function runDaytradeBacktest() {
         const symbol = ($('bt-symbol').value || '2408').trim().toUpperCase();
+        const timeframe = $('bt-timeframe')?.value || 'intraday';
         const range = $('bt-range').value || '7d';
         const stopLoss = parseFloat($('bt-stop-loss').value) || 1.5;
         const trailTrigger = parseFloat($('bt-trail-trigger').value) || 1.5;
@@ -1085,7 +1153,7 @@
             const trailingTriggerPct = trailTrigger / 100;
             const trailingStopPct = trailStop / 100;
 
-            const res = await fetch(`/api/backtest/daytrade?symbol=${encodeURIComponent(symbol)}&range=${range}&stopLossPct=${stopLossPct}&trailingTriggerPct=${trailingTriggerPct}&trailingStopPct=${trailingStopPct}&tradeVolume=${tradeVolume}&feeDiscount=${feeDiscount}&strategy=${strategy}`);
+            const res = await fetch(`/api/backtest/daytrade?symbol=${encodeURIComponent(symbol)}&range=${range}&stopLossPct=${stopLossPct}&trailingTriggerPct=${trailingTriggerPct}&trailingStopPct=${trailingStopPct}&tradeVolume=${tradeVolume}&feeDiscount=${feeDiscount}&strategy=${strategy}&timeframe=${timeframe}`);
             if (!res.ok) {
                 const errData = await res.json();
                 throw new Error(errData.error || '回測 API 回傳錯誤');
@@ -1136,8 +1204,10 @@
                 const pnlSign = t.pnlAmount >= 0 ? '+' : '';
                 const pnlClass = t.pnlAmount >= 0 ? 'positive' : 'negative';
 
+                const dateDisplay = timeframe === 'swing_daily' && t.exitDate ? `${t.date}<br><span style="font-size:0.75rem; color:var(--text-dim);">至 ${t.exitDate}</span>` : t.date;
+
                 tr.innerHTML = `
-                    <td style="font-weight:600;">${t.date}</td>
+                    <td style="font-weight:600; line-height:1.2;">${dateDisplay}</td>
                     <td>${dirBadge}</td>
                     <td>${t.entryTime || '-'}</td>
                     <td>${t.entryPrice > 0 ? 'NT$ ' + t.entryPrice.toFixed(2) : '-'}</td>
@@ -1163,13 +1233,14 @@
                 btn.addEventListener('click', function() {
                     const dateStr = this.dataset.date;
                     const tradeIdx = parseInt(this.dataset.idx);
-                    const dayKlines = btCachedChartData[dateStr];
+                    const isSwing = timeframe === 'swing_daily';
+                    const dayKlines = isSwing ? btCachedChartData['all'] : btCachedChartData[dateStr];
                     const tradeDetail = btCachedTrades[tradeIdx];
 
                     viewBtns.forEach(b => b.classList.remove('active'));
                     this.classList.add('active');
 
-                    renderDaytradeChart(dateStr, dayKlines, tradeDetail);
+                    renderDaytradeChart(dateStr, dayKlines, tradeDetail, timeframe);
                 });
             });
 
@@ -1196,13 +1267,18 @@
         }
     }
 
-    function renderDaytradeChart(dateStr, klines, tradeDetail) {
+    function renderDaytradeChart(dateStr, klines, tradeDetail, timeframe = 'intraday') {
         const ctx = $('chart-bt-day');
         if (!ctx) return;
 
-        $('bt-chart-date-label').textContent = `${dateStr} — ${tradeDetail.direction === 'LONG' ? '做多' : '做空'} (${tradeDetail.pnlPct >= 0 ? '+' : ''}${tradeDetail.pnlPct.toFixed(2)}%)`;
+        const isSwing = timeframe === 'swing_daily';
+        if (isSwing) {
+            $('bt-chart-date-label').textContent = `波段持倉: ${tradeDetail.date} 至 ${tradeDetail.exitDate} — ${tradeDetail.direction === 'LONG' ? '做多' : '做空'} (${tradeDetail.pnlPct >= 0 ? '+' : ''}${tradeDetail.pnlPct.toFixed(2)}%)`;
+        } else {
+            $('bt-chart-date-label').textContent = `${dateStr} — ${tradeDetail.direction === 'LONG' ? '做多' : '做空'} (${tradeDetail.pnlPct >= 0 ? '+' : ''}${tradeDetail.pnlPct.toFixed(2)}%)`;
+        }
 
-        const labels = klines.map(k => k.time.substring(0, 5));
+        const labels = klines.map(k => isSwing ? k.date : k.time.substring(0, 5));
         const closePrices = klines.map(k => k.close);
         const vwapValues = klines.map(k => k.vwap);
 
@@ -1210,20 +1286,24 @@
         const exitTime = tradeDetail.exitTime;
 
         const pointRadii = klines.map(k => {
-            if (k.time === entryTime || k.time.substring(0, 5) === entryTime.substring(0, 5)) return 6;
-            if (k.time === exitTime || k.time.substring(0, 5) === exitTime.substring(0, 5)) return 6;
-            return 0;
+            const isEntry = isSwing ? (k.date === tradeDetail.date) : (k.time === entryTime || k.time.substring(0, 5) === entryTime.substring(0, 5));
+            const isExit = isSwing ? (k.date === tradeDetail.exitDate) : (k.time === exitTime || k.time.substring(0, 5) === exitTime.substring(0, 5));
+            return (isEntry || isExit) ? 6 : 0;
         });
 
         const pointColors = klines.map(k => {
-            if (k.time === entryTime || k.time.substring(0, 5) === entryTime.substring(0, 5)) return '#10b981';
-            if (k.time === exitTime || k.time.substring(0, 5) === exitTime.substring(0, 5)) return '#f59e0b';
+            const isEntry = isSwing ? (k.date === tradeDetail.date) : (k.time === entryTime || k.time.substring(0, 5) === entryTime.substring(0, 5));
+            const isExit = isSwing ? (k.date === tradeDetail.exitDate) : (k.time === exitTime || k.time.substring(0, 5) === exitTime.substring(0, 5));
+            if (isEntry) return '#10b981';
+            if (isExit) return '#f59e0b';
             return 'transparent';
         });
 
         const pointStyles = klines.map(k => {
-            if (k.time === entryTime || k.time.substring(0, 5) === entryTime.substring(0, 5)) return 'triangle';
-            if (k.time === exitTime || k.time.substring(0, 5) === exitTime.substring(0, 5)) return 'rectRot';
+            const isEntry = isSwing ? (k.date === tradeDetail.date) : (k.time === entryTime || k.time.substring(0, 5) === entryTime.substring(0, 5));
+            const isExit = isSwing ? (k.date === tradeDetail.exitDate) : (k.time === exitTime || k.time.substring(0, 5) === exitTime.substring(0, 5));
+            if (isEntry) return 'triangle';
+            if (isExit) return 'rectRot';
             return 'circle';
         });
 
@@ -1249,7 +1329,7 @@
                         tension: 0.1,
                     },
                     {
-                        label: 'VWAP',
+                        label: isSwing ? 'SMA20' : 'VWAP',
                         data: vwapValues,
                         borderColor: 'rgb(245, 158, 11)', // orange/yellow
                         borderWidth: 1.5,
@@ -1279,9 +1359,11 @@
                                 }
                                 const idx = context.dataIndex;
                                 const k = klines[idx];
-                                if (k.time === entryTime || k.time.substring(0, 5) === entryTime.substring(0, 5)) {
+                                const isEntry = isSwing ? (k.date === tradeDetail.date) : (k.time === entryTime || k.time.substring(0, 5) === entryTime.substring(0, 5));
+                                const isExit = isSwing ? (k.date === tradeDetail.exitDate) : (k.time === exitTime || k.time.substring(0, 5) === exitTime.substring(0, 5));
+                                if (isEntry) {
                                     label += ' 🟢 進場開倉';
-                                } else if (k.time === exitTime || k.time.substring(0, 5) === exitTime.substring(0, 5)) {
+                                } else if (isExit) {
                                     label += ` 🔴 平倉出場 (${tradeDetail.reason})`;
                                 }
                                 return label;

@@ -499,11 +499,18 @@
                 </p>
 
                 <div class="journal-form-row">
-                    <div class="journal-input-group" style="max-width:150px;">
+                    <div class="journal-input-group" style="max-width:160px;">
+                        <label class="form-label" for="bt-timeframe">回測層級</label>
+                        <select class="form-input" id="bt-timeframe">
+                            <option value="intraday" selected>分分當沖 (1m K線)</option>
+                            <option value="swing_daily">日線波段 (Daily K線)</option>
+                        </select>
+                    </div>
+                    <div class="journal-input-group" style="max-width:110px;">
                         <label class="form-label" for="bt-symbol">股票代號</label>
                         <input type="text" class="form-input" id="bt-symbol" value="2408" placeholder="例 2408, 2330">
                     </div>
-                    <div class="journal-input-group" style="max-width:120px;">
+                    <div class="journal-input-group" style="max-width:130px;">
                         <label class="form-label" for="bt-range">回測區間</label>
                         <select class="form-input" id="bt-range">
                             <option value="5d">過去 5 天</option>
@@ -512,7 +519,7 @@
                         </select>
                     </div>
                     <div class="journal-input-group" style="min-width:220px; flex-grow:1;">
-                        <label class="form-label" for="bt-strategy">當沖策略模型</label>
+                        <label class="form-label" for="bt-strategy">量化策略模型</label>
                         <select class="form-input" id="bt-strategy">
                             <option value="vwap" selected>VWAP 均價定錨決策策略</option>
                             <option value="orb">ORB 開盤區間突破策略 (09:15)</option>

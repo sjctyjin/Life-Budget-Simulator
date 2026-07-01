@@ -1322,6 +1322,9 @@ app.get('/api/backtest/daytrade', async (req, res) => {
     const feeDiscount = parseFloat(req.query.feeDiscount) || 0.6;
     const strategy = req.query.strategy || 'vwap';
     const decisionTime = req.query.decisionTime || '09:15';
+    const timeframe = req.query.timeframe || 'intraday';
+
+    let allTimestamps = [], allOpens = [], allHighs = [], allLows = [], allCloses = [], allVolumes = [];
 
     const isTW = /^\d{4,6}[A-Z]*$/.test(symbol);
     let yahooSymbol = symbol;
@@ -1393,10 +1396,46 @@ app.get('/api/backtest/daytrade', async (req, res) => {
     }
 
     try {
-        console.log(`[Backtest] Starting ${strategy} strategy backtest for ${yahooSymbol} (${range})`);
+        console.log(`[Backtest] Starting ${strategy} strategy backtest for ${yahooSymbol} (${range}) [Timeframe: ${timeframe}]`);
         
         let rawKlines = [];
-        if (range === '30d') {
+        if (timeframe === 'swing_daily') {
+            const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(yahooSymbol)}?interval=1d&range=${range}`;
+            let yfRes;
+            try {
+                yfRes = await fetchJSON(url);
+            } catch (err) {
+                if (isTW && !symbol.includes('.')) {
+                    yahooSymbol = symbol + '.TWO';
+                    const altUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(yahooSymbol)}?interval=1d&range=${range}`;
+                    yfRes = await fetchJSON(altUrl);
+                } else {
+                    throw err;
+                }
+            }
+            const result = yfRes.chart.result?.[0];
+            if (!result || !result.timestamp) {
+                return res.status(404).json({ error: `找不到該股票的日K線資料: ${symbol}` });
+            }
+            const timestamps = result.timestamp;
+            const indicators = result.indicators.quote[0];
+            for (let i = 0; i < timestamps.length; i++) {
+                if (indicators.open?.[i] !== null && indicators.close?.[i] !== null) {
+                    const d = new Date(timestamps[i] * 1000);
+                    const localDateStr = d.toLocaleDateString('en-CA', { timeZone: 'Asia/Taipei' });
+                    rawKlines.push({
+                        timestamp: timestamps[i],
+                        date: localDateStr,
+                        time: '09:00:00',
+                        open: indicators.open[i],
+                        high: indicators.high[i],
+                        low: indicators.low[i],
+                        close: indicators.close[i],
+                        volume: indicators.volume[i] || 0
+                    });
+                }
+            }
+        } else if (range === '30d') {
             const nowSec = Math.floor(Date.now() / 1000);
             const secondsPerBlock = 6 * 86400; // 6 days
             const fetchPromises = [];
@@ -1499,44 +1538,364 @@ app.get('/api/backtest/daytrade', async (req, res) => {
             allVolumes = quotes.volume || [];
         }
 
-        if (allTimestamps.length === 0) {
+        if (timeframe !== 'swing_daily' && allTimestamps.length === 0) {
             return res.status(404).json({ error: `股票 ${symbol} 的 1 分鐘 K 線數據為空` });
-        }
-
-        const timestamps = allTimestamps;
-        const opens = allOpens;
-        const highs = allHighs;
-        const lows = allLows;
-        const closes = allCloses;
-        const volumes = allVolumes;
-
-        // Group data by date (YYYY-MM-DD) in Asia/Taipei timezone
-        const daysMap = new Map();
-        for (let i = 0; i < timestamps.length; i++) {
-            if (closes[i] == null || opens[i] == null || volumes[i] == null) continue;
-            const d = new Date(timestamps[i] * 1000);
-            const dateStr = d.toLocaleDateString('en-CA', { timeZone: 'Asia/Taipei' });
-            const timeStr = d.toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit', timeZone: 'Asia/Taipei' });
-
-            if (!daysMap.has(dateStr)) {
-                daysMap.set(dateStr, []);
-            }
-            daysMap.get(dateStr).push({
-                timestamp: timestamps[i],
-                time: timeStr,
-                open: opens[i],
-                high: highs[i],
-                low: lows[i],
-                close: closes[i],
-                volume: volumes[i]
-            });
         }
 
         const trades = [];
         const chartDataByDay = {};
 
-        // Run strategy for each day
-        const sortedDates = Array.from(daysMap.keys()).sort();
+        if (timeframe === 'swing_daily') {
+            const prices = rawKlines.map(k => k.close);
+            const sma20 = calculateSMAArray(prices, 20);
+            const bb = calculateBollingerBandsArray(prices, 20);
+            const rsi = calculateRSIArray(prices, 14);
+
+            const processedKlines = rawKlines.map((k, idx) => {
+                return {
+                    ...k,
+                    vwap: sma20[idx] || k.close,
+                    sma20: sma20[idx],
+                    bbLower: bb[idx]?.lower || null,
+                    bbUpper: bb[idx]?.upper || null,
+                    bbMiddle: bb[idx]?.middle || null,
+                    rsi: rsi[idx]
+                };
+            });
+
+            chartDataByDay['all'] = processedKlines;
+
+            function pushSwingTrade(tradeDirection, entryPr, entryDt, exitPr, exitDt, exitReason) {
+                const entryTotal = entryPr * tradeVolume;
+                const exitTotal = exitPr * tradeVolume;
+
+                let entryFee = Math.floor(entryTotal * 0.001425 * feeDiscount);
+                let exitFee = Math.floor(exitTotal * 0.001425 * feeDiscount);
+                if (entryFee < 20) entryFee = 20;
+                if (exitFee < 20) exitFee = 20;
+
+                let tax = 0;
+                let grossPnl = 0;
+                if (tradeDirection === 1) { // LONG
+                    tax = Math.floor(exitTotal * 0.003);
+                    grossPnl = exitTotal - entryTotal;
+                } else { // SHORT
+                    tax = Math.floor(entryTotal * 0.003);
+                    grossPnl = entryTotal - exitTotal;
+                }
+
+                const frictionCost = entryFee + exitFee + tax;
+                const netPnl = grossPnl - frictionCost;
+                const denominator = tradeDirection === 1 ? entryTotal : exitTotal;
+                const netReturnPct = denominator > 0 ? (netPnl / denominator) * 100 : 0;
+
+                trades.push({
+                    date: entryDt,
+                    exitDate: exitDt,
+                    direction: tradeDirection === 1 ? 'LONG' : 'SHORT',
+                    entryTime: '09:00',
+                    entryPrice: Math.round(entryPr * 100) / 100,
+                    exitTime: '13:30',
+                    exitPrice: Math.round(exitPr * 100) / 100,
+                    grossPnl: grossPnl,
+                    frictionCost: frictionCost,
+                    pnlAmount: netPnl,
+                    pnlPct: Math.round(netReturnPct * 100) / 100,
+                    reason: exitReason,
+                });
+            }
+
+            let direction = 0;
+            let entryPrice = 0;
+            let entryTime = '-';
+            let entryIdx = -1;
+            let highestPriceSinceEntry = 0;
+            let lowestPriceSinceEntry = 0;
+
+            if (strategy === 'vwap') {
+                for (let i = 20; i < processedKlines.length; i++) {
+                    const currentBar = processedKlines[i];
+                    const prevBar = processedKlines[i - 1];
+
+                    if (direction === 0) {
+                        if (prevBar.close > sma20[i - 1]) {
+                            direction = 1;
+                            entryPrice = currentBar.open;
+                            entryTime = currentBar.date;
+                            entryIdx = i;
+                            highestPriceSinceEntry = entryPrice;
+                            lowestPriceSinceEntry = entryPrice;
+                        } else if (prevBar.close < sma20[i - 1]) {
+                            direction = -1;
+                            entryPrice = currentBar.open;
+                            entryTime = currentBar.date;
+                            entryIdx = i;
+                            highestPriceSinceEntry = entryPrice;
+                            lowestPriceSinceEntry = entryPrice;
+                        }
+                    } else {
+                        highestPriceSinceEntry = Math.max(highestPriceSinceEntry, currentBar.high);
+                        lowestPriceSinceEntry = Math.min(lowestPriceSinceEntry, currentBar.low);
+
+                        let exitPrice = null;
+                        let exitReason = '';
+
+                        if (direction === 1 && prevBar.close < sma20[i - 1]) {
+                            exitPrice = currentBar.open;
+                            exitReason = '跌破SMA20均線';
+                        } else if (direction === -1 && prevBar.close > sma20[i - 1]) {
+                            exitPrice = currentBar.open;
+                            exitReason = '站上SMA20均線';
+                        }
+
+                        if (exitPrice === null) {
+                            if (direction === 1 && currentBar.low <= entryPrice * (1 - stopLossPct)) {
+                                exitPrice = entryPrice * (1 - stopLossPct);
+                                exitReason = '波段停損';
+                            } else if (direction === -1 && currentBar.high >= entryPrice * (1 + stopLossPct)) {
+                                exitPrice = entryPrice * (1 + stopLossPct);
+                                exitReason = '波段停損';
+                            }
+                        }
+
+                        if (exitPrice === null) {
+                            if (direction === 1 && highestPriceSinceEntry >= entryPrice * (1 + trailingTriggerPct)) {
+                                if (currentBar.low <= highestPriceSinceEntry * (1 - trailingStopPct)) {
+                                    exitPrice = highestPriceSinceEntry * (1 - trailingStopPct);
+                                    exitReason = '移動停利';
+                                }
+                            } else if (direction === -1 && lowestPriceSinceEntry <= entryPrice * (1 - trailingTriggerPct)) {
+                                if (currentBar.high >= lowestPriceSinceEntry * (1 + trailingStopPct)) {
+                                    exitPrice = lowestPriceSinceEntry * (1 + trailingStopPct);
+                                    exitReason = '移動停利';
+                                }
+                            }
+                        }
+
+                        if (exitPrice !== null) {
+                            pushSwingTrade(direction, entryPrice, entryTime, exitPrice, currentBar.date, exitReason);
+                            direction = 0;
+                        }
+                    }
+                }
+            } else if (strategy === 'orb') {
+                const dcHighArray = new Array(processedKlines.length).fill(null);
+                const dcLowArray = new Array(processedKlines.length).fill(null);
+                const dcMidArray = new Array(processedKlines.length).fill(null);
+                for (let i = 19; i < processedKlines.length; i++) {
+                    const windowKlines = processedKlines.slice(i - 19, i + 1);
+                    dcHighArray[i] = Math.max(...windowKlines.map(k => k.high));
+                    dcLowArray[i] = Math.min(...windowKlines.map(k => k.low));
+                    dcMidArray[i] = (dcHighArray[i] + dcLowArray[i]) / 2;
+                }
+
+                for (let i = 20; i < processedKlines.length; i++) {
+                    const currentBar = processedKlines[i];
+                    const prevBar = processedKlines[i - 1];
+
+                    if (direction === 0) {
+                        if (prevBar.close > dcHighArray[i - 2]) {
+                            direction = 1;
+                            entryPrice = currentBar.open;
+                            entryTime = currentBar.date;
+                            entryIdx = i;
+                        } else if (prevBar.close < dcLowArray[i - 2]) {
+                            direction = -1;
+                            entryPrice = currentBar.open;
+                            entryTime = currentBar.date;
+                            entryIdx = i;
+                        }
+                    } else {
+                        let exitPrice = null;
+                        let exitReason = '';
+
+                        const mid = dcMidArray[i - 1];
+                        if (direction === 1 && currentBar.low <= mid) {
+                            exitPrice = mid;
+                            exitReason = '通道中線停損';
+                        } else if (direction === -1 && currentBar.high >= mid) {
+                            exitPrice = mid;
+                            exitReason = '通道中線停損';
+                        }
+
+                        if (exitPrice === null) {
+                            if (direction === 1 && prevBar.close < dcLowArray[i - 2]) {
+                                exitPrice = currentBar.open;
+                                exitReason = '跌破通道下軌';
+                            } else if (direction === -1 && prevBar.close > dcHighArray[i - 2]) {
+                                exitPrice = currentBar.open;
+                                exitReason = '突破通道上軌';
+                            }
+                        }
+
+                        if (exitPrice !== null) {
+                            pushSwingTrade(direction, entryPrice, entryTime, exitPrice, currentBar.date, exitReason);
+                            direction = 0;
+                        }
+                    }
+                }
+            } else if (strategy === 'obi') {
+                const clvs = processedKlines.map(k => {
+                    if (k.high === k.low) return 0;
+                    return ((k.close - k.low) - (k.high - k.close)) / (k.high - k.low);
+                });
+                const buyVols = processedKlines.map((k, idx) => k.volume * (clvs[idx] + 1) / 2);
+                const sellVols = processedKlines.map((k, idx) => k.volume * (1 - clvs[idx]) / 2);
+
+                const obis = new Array(processedKlines.length).fill(0);
+                for (let i = 4; i < processedKlines.length; i++) {
+                    let sumBuy = 0;
+                    let sumSell = 0;
+                    for (let j = i - 4; j <= i; j++) {
+                        sumBuy += buyVols[j];
+                        sumSell += sellVols[j];
+                    }
+                    obis[i] = (sumBuy + sumSell === 0) ? 0 : (sumBuy - sumSell) / (sumBuy + sumSell);
+                }
+
+                for (let i = 5; i < processedKlines.length; i++) {
+                    const currentBar = processedKlines[i];
+                    const prevBar = processedKlines[i - 1];
+
+                    if (direction === 0) {
+                        if (obis[i - 1] > 0.5) {
+                            direction = 1;
+                            entryPrice = currentBar.open;
+                            entryTime = currentBar.date;
+                            entryIdx = i;
+                            highestPriceSinceEntry = entryPrice;
+                            lowestPriceSinceEntry = entryPrice;
+                        } else if (obis[i - 1] < -0.5) {
+                            direction = -1;
+                            entryPrice = currentBar.open;
+                            entryTime = currentBar.date;
+                            entryIdx = i;
+                            highestPriceSinceEntry = entryPrice;
+                            lowestPriceSinceEntry = entryPrice;
+                        }
+                    } else {
+                        highestPriceSinceEntry = Math.max(highestPriceSinceEntry, currentBar.high);
+                        lowestPriceSinceEntry = Math.min(lowestPriceSinceEntry, currentBar.low);
+
+                        let exitPrice = null;
+                        let exitReason = '';
+
+                        if (direction === 1 && currentBar.low <= entryPrice * (1 - stopLossPct)) {
+                            exitPrice = entryPrice * (1 - stopLossPct);
+                            exitReason = '波段停損';
+                        } else if (direction === -1 && currentBar.high >= entryPrice * (1 + stopLossPct)) {
+                            exitPrice = entryPrice * (1 + stopLossPct);
+                            exitReason = '波段停損';
+                        }
+
+                        if (exitPrice === null) {
+                            if (direction === 1 && highestPriceSinceEntry >= entryPrice * (1 + trailingTriggerPct)) {
+                                if (currentBar.low <= highestPriceSinceEntry * (1 - trailingStopPct)) {
+                                    exitPrice = highestPriceSinceEntry * (1 - trailingStopPct);
+                                    exitReason = '移動停利';
+                                }
+                            } else if (direction === -1 && lowestPriceSinceEntry <= entryPrice * (1 - trailingTriggerPct)) {
+                                if (currentBar.high >= lowestPriceSinceEntry * (1 + trailingStopPct)) {
+                                    exitPrice = lowestPriceSinceEntry * (1 + trailingStopPct);
+                                    exitReason = '移動停利';
+                                }
+                            }
+                        }
+
+                        if (exitPrice !== null) {
+                            pushSwingTrade(direction, entryPrice, entryTime, exitPrice, currentBar.date, exitReason);
+                            direction = 0;
+                        }
+                    }
+                }
+            } else if (strategy === 'mean_reversion') {
+                for (let i = 20; i < processedKlines.length; i++) {
+                    const currentBar = processedKlines[i];
+                    const prevBar = processedKlines[i - 1];
+
+                    if (direction === 0) {
+                        if (bb[i - 1] !== null) {
+                            if (prevBar.close < bb[i - 1].lower && rsi[i - 1] < 30) {
+                                direction = 1;
+                                entryPrice = currentBar.open;
+                                entryTime = currentBar.date;
+                                entryIdx = i;
+                            } else if (prevBar.close > bb[i - 1].upper && rsi[i - 1] > 70) {
+                                direction = -1;
+                                entryPrice = currentBar.open;
+                                entryTime = currentBar.date;
+                                entryIdx = i;
+                            }
+                        }
+                    } else {
+                        let exitPrice = null;
+                        let exitReason = '';
+
+                        if (bb[i - 1] !== null) {
+                            const middleBand = bb[i - 1].middle;
+                            if (direction === 1 && currentBar.high >= middleBand) {
+                                exitPrice = middleBand;
+                                exitReason = '均值回歸停利(日線中軌)';
+                            } else if (direction === -1 && currentBar.low <= middleBand) {
+                                exitPrice = middleBand;
+                                exitReason = '均值回歸停利(日線中軌)';
+                            }
+                        }
+
+                        if (exitPrice === null) {
+                            if (direction === 1 && currentBar.low <= entryPrice * (1 - stopLossPct)) {
+                                exitPrice = entryPrice * (1 - stopLossPct);
+                                exitReason = '超買超賣停損';
+                            } else if (direction === -1 && currentBar.high >= entryPrice * (1 + stopLossPct)) {
+                                exitPrice = entryPrice * (1 + stopLossPct);
+                                exitReason = '超買超賣停損';
+                            }
+                        }
+
+                        if (exitPrice !== null) {
+                            pushSwingTrade(direction, entryPrice, entryTime, exitPrice, currentBar.date, exitReason);
+                            direction = 0;
+                        }
+                    }
+                }
+            }
+
+            if (direction !== 0) {
+                const lastBar = processedKlines[processedKlines.length - 1];
+                pushSwingTrade(direction, entryPrice, entryTime, lastBar.close, lastBar.date, '回測終點強制平倉');
+            }
+
+        } else {
+            const timestamps = allTimestamps;
+            const opens = allOpens;
+            const highs = allHighs;
+            const lows = allLows;
+            const closes = allCloses;
+            const volumes = allVolumes;
+
+            const daysMap = new Map();
+            for (let i = 0; i < timestamps.length; i++) {
+                if (closes[i] == null || opens[i] == null || volumes[i] == null) continue;
+                const d = new Date(timestamps[i] * 1000);
+                const dateStr = d.toLocaleDateString('en-CA', { timeZone: 'Asia/Taipei' });
+                const timeStr = d.toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit', timeZone: 'Asia/Taipei' });
+
+                if (!daysMap.has(dateStr)) {
+                    daysMap.set(dateStr, []);
+                }
+                daysMap.get(dateStr).push({
+                    timestamp: timestamps[i],
+                    time: timeStr,
+                    open: opens[i],
+                    high: highs[i],
+                    low: lows[i],
+                    close: closes[i],
+                    volume: volumes[i]
+                });
+            }
+
+            // Run strategy for each day
+            const sortedDates = Array.from(daysMap.keys()).sort();
         for (const dateStr of sortedDates) {
             const dayKlines = daysMap.get(dateStr).sort((a, b) => a.timestamp - b.timestamp);
 
@@ -2050,6 +2409,7 @@ app.get('/api/backtest/daytrade', async (req, res) => {
                 pushTrade(direction, entryPrice, entryTime, exitPrice, exitTime, exitReason);
             }
         }
+    }
 
         // Calculate Summary Metrics
         const activeTrades = trades.filter(t => t.direction !== 'NONE');
