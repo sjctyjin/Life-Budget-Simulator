@@ -1,0 +1,18 @@
+{
+  "name": "人生財務決策模擬器 | Life Budget Simulator",
+  "short_name": "財務模擬器",
+  "description": "透過蒙地卡羅模擬與歷史回測，預測重大財務決策的成功率與風險。",
+  "start_url": "/index.html",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#121214",
+  "theme_color": "#8b5cf6",
+  "icons": [
+    {
+      "src": "favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
