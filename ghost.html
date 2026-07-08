@@ -594,6 +594,8 @@
                 const roiColor = result.roi >= 0 ? 'var(--accent-green)' : 'var(--accent-red)';
                 const irrColor = result.irr >= 0.05 ? 'var(--accent-green)' : result.irr >= 0 ? 'var(--accent-yellow)' : 'var(--accent-red)';
                 const priceColor = result.priceGain >= 0 ? 'var(--accent-green)' : 'var(--accent-red)';
+                const netProfit = result.totalReturn - result.totalInvested;
+                const netProfitColor = netProfit >= 0 ? 'var(--accent-green)' : 'var(--accent-red)';
 
                 const totalDivBH = result.totalDividendsCash + (result.totalDividendsReinvested || 0);
                 const yrsBH = result.holdingYears || 1;
@@ -630,8 +632,8 @@
                     </div>
                     <div class="ghost-stat-card">
                         <div class="stat-icon">💎</div>
-                        <div class="stat-value" style="color:var(--accent-cyan)">NT$ ${fmtCur(result.totalReturn)}</div>
-                        <div class="stat-label">總報酬 (市值 + 配息)</div>
+                        <div class="stat-value" style="color:${netProfitColor}">${netProfit >= 0 ? '+' : ''}NT$ ${fmtCur(netProfit)}</div>
+                        <div class="stat-label">實際獲利 (市值 + 配息 − 成本)</div>
                     </div>
                     <div class="ghost-stat-card">
                         <div class="stat-icon">📈</div>
